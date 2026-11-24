@@ -156,6 +156,15 @@ Both halves ship in one pull request from `feat/sentry`, so production never run
 3. **Production, after merge:** open the live site in headless Chrome with no microphone device and press On. An event appears in Sentry tagged `production`, its stack frames naming files under `src/`, not minified bundle names.
 4. `bunx varlock load --agent` validates on the VM.
 
+## Changes during the build
+
+Recorded on 2026-11-24, after the build and its review. Where this section and the text above disagree, this section is what was built.
+
+- **Reports are sent only from our own hosts:** the two production hostnames, `ok-tuner-…-lightning-jar.vercel.app` previews, and `ok-tuner.bench.lj.dev`. Everywhere else, including `localhost` and any other `*.vercel.app`, the SDK is disabled. The repository is public, and without this a fork or a stranger's dev server would report into this project. A custom domain must be added to the list in `src/sentry.ts`.
+- **The microphone report is an error, not a message.** With `attachStacktrace` on, Sentry titled a message by the function that sent it. `ReportProblem` now sends an `Error` named `Microphone failed: <error name>` whose text is the browser's message, cut to 300 characters. The tag and the grouping by error name are unchanged.
+- **Crash reports keep nested data.** The SDK's default flattens anything deeper than three levels, which lost the current reading; the depth is raised to 10.
+- **Approximate location.** With every switch off, Sentry stores no IP address but still attaches a country, region and city to each report on its side.
+
 ## Left to the builder
 
 - Exact names and shapes of the failure union, the new Command's arguments, and the functions in `src/sentry.ts`.

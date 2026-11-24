@@ -51,7 +51,9 @@ Errors go to [Sentry](https://sentry.io), and nothing else does:
 
 A visit where nothing goes wrong sends nothing. There is no session tracking, tracing or replay, no cookies or user identifiers, and the SDK is told not to record the IP address. Refusing the microphone and blocking site storage are choices, not errors, and are not reported.
 
-Reports are tagged `production`, `preview` or `development` by hostname, so the dev server reports too.
+An error report does carry the page URL, the browser's locale and timezone, and the clicks and console lines just before it. Sentry also adds an approximate location (country, region, city) on its side.
+
+Reports are sent only from the project's own hosts, listed in `src/sentry.ts`, and tagged `production`, `preview` or `development` by hostname. A fork, or `bun run dev` on `localhost`, reports nothing.
 
 ## Deployment
 

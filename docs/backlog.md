@@ -23,6 +23,7 @@ Items are grouped by kind, not ranked.
 
 ## Model and code
 
+- **Mandolin and banjo tunings,** added to the nine there are.
 - **Tuning id as a plain string.** `tuningId` is `Schema.String`, with unknown ids falling back to standard. Reconsider a literal union of the nine ids, so an invalid id cannot be represented.
 - **A4 field accepts decimals** such as 442.5 and forms such as "4e2". The design says steps of 1. Decide, then change `parseA4` and the test that pins 442.5.
 - **"-0 cents".** A needle between −0.5 and 0 prints "-0 cents", as the original does.
@@ -40,6 +41,7 @@ Items are grouped by kind, not ranked.
 - **Ad-free and tracker-free, in the title.** Update the page title to say so.
 - **Ad-free and tracker-free, in the copy.** Add a line to the page saying so.
 - **A custom crash screen** in place of Foldkit's default, which is written for developers.
+- **A microphone error whose message is only spaces** shows an empty alert. Fall back to the plain sentence.
 - **Favicon.** There is none, so every load logs one 404.
 - **Font.** The system font is fine for now; may be revisited.
 

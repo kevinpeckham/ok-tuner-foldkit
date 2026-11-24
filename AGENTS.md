@@ -38,7 +38,7 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 - Sentry project `ok-tuner` in the `lightning-jar` organisation. Only `src/sentry.ts` and its test import `@sentry/browser`.
 - Errors only: a visit where nothing goes wrong sends nothing. Do not add tracing, replay, the session integration, or anything that identifies a visitor.
 - A caught failure worth reporting is reported by a Command returned from `update` (`ReportProblem`), not from inside the code that caught it. A person's own choice (refusing the microphone, blocking storage) is not reported.
-- The dev server reports too, tagged `development`. Resolve test issues you create.
+- Reports are sent only from our own hosts (`reportsFrom` in `src/sentry.ts`): production, our Vercel previews, and the dev server at `ok-tuner.bench.lj.dev`, tagged `development`. `localhost` reports nothing. A custom domain must be added there. Resolve test issues you create.
 
 ### Conventions that differ from Foldkit's defaults
 
