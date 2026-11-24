@@ -1,6 +1,6 @@
 # OK Tuner: design
 
-Date: 2026-11-24. Status: awaiting Kevin's approval.
+Date: 2026-11-24. Status: approved by Kevin on 2026-11-24.
 
 ## Intent
 
@@ -110,7 +110,7 @@ The note name, octave, cents label, "in tune" and the nearest string are not sto
 - Active while `Listening`.
 - Every 50 ms it reads 4096 samples from the analyser, computes the level (`min(1, rms × 4)`), runs `detectPitch` when the level is above 0.01, and sends one Message carrying the level and the pitch if one was found.
 - It looks the microphone up on each tick, not once when the stream starts. In development Vite restores the Model after a full reload without running `init`, so the page can boot already `Listening` before the microphone is acquired again; a single lookup would then leave the tuner showing on with no readings. For the same reason `update` accepts "acquired" while already `Listening`. Production never restores a Model.
-- Foldkit's devtools keep 100 Messages by default, about five seconds of readings. Readings stay in the history, with the limit raised to 500 (my call).
+- Foldkit's devtools keep 100 Messages by default, about five seconds of readings. Readings stay in the history, with the limit raised to 500 (agreed by Kevin).
 
 ### Update: the tuner's behaviour
 
@@ -125,14 +125,14 @@ Pressing the button: from `Off` or `Failed` go to `Starting`; from `Listening` g
 ### Preferences
 
 - Read once at startup as flags, from `localStorage` key `oktuner.tuner`, shaped `{ tuningId, a4 }`.
-- Validation as the original: A4 must be a number from 400 to 480, otherwise 440. An unknown or missing tuning falls back to `standard` (my call; the original falls back to Chromatic for an unknown id, which reads as a bug).
+- Validation as the original: A4 must be a number from 400 to 480, otherwise 440. An unknown or missing tuning falls back to `standard` (agreed by Kevin; the original falls back to Chromatic for an unknown id, which reads as a bug).
 - A change to the tuning or to A4 updates the Model and issues a Command that writes the pair back. A failed write (private mode, full store) is reported as a Message and otherwise ignored: the choice lasts for the page.
 - Reading and writing use Effect's `KeyValueStore` with the browser's `localStorage` layer, as Foldkit's flags documentation does.
 
 ### Controls
 
 - Tuning picker: `@foldkit/ui` Listbox (single select), nine options, labelled "Tuning".
-- A4: a `@foldkit/ui` Popover holding a number input, 400 to 480 in steps of 1. Each valid value is applied and saved as it is typed. A value outside the range, or an empty field, is not applied, and the field returns to the applied value when the popover closes (my call).
+- A4: a `@foldkit/ui` Popover holding a number input, 400 to 480 in steps of 1. Each valid value is applied and saved as it is typed. A value outside the range, or an empty field, is not applied, and the field returns to the applied value when the popover closes (agreed by Kevin).
 - Both are disabled unless the tuner is `Listening`, as in the original.
 - On/Off: a button with a power icon, `aria-pressed` when listening; while starting it shows a spinner and "Starting…" and is `aria-busy`.
 
@@ -162,7 +162,7 @@ Turn the tuner on and play a single string…
 - Chromatic shows no string chips.
 - Accessibility carried over: the level bar is a meter with its value, the note is a polite live region, the needle and scale are hidden from assistive technology, the strings are a labelled list, the error is an alert. Each string chip carries its target frequency as a tooltip.
 
-My calls here, for Kevin to check:
+Calls made in drafting, all agreed by Kevin on 2026-11-24 (the font "for now; we may revisit later"):
 
 - The badge reads "OK Tuner 001" where the original reads "SS Tuner 001".
 - The page title is "OK Tuner | Chromatic Instrument Tuner".
@@ -181,9 +181,9 @@ My calls here, for Kevin to check:
 ### Deployment
 
 - A Vercel project named `ok-tuner`, built with `bun run build`, serving `dist`.
-- Team: Lightning Jar, where the Stem Shovel project already lives (my call; the VM's CLI is also signed in to Kevin's personal hobby team).
-- Production is a public URL even if nobody is told it. Until Kevin decides to make the tuner public, responses carry `X-Robots-Tag: noindex` (my call).
-- Deployed from the Vercel CLI (my call): the GitHub repository is under `kevinpeckham` while the team is Lightning Jar, so a git connection is a separate decision for later.
+- Team: Lightning Jar, where the Stem Shovel project already lives (Kevin's decision).
+- Deployed from a GitHub connection, the same way as Stem Shovel (Kevin's decision): both the `kevinpeckham` and `lightning-jar` GitHub accounts are connected to the Lightning Jar team in Vercel, so the project is linked to `kevinpeckham/ok-tuner-foldkit` and a push to `main` deploys production.
+- Production is a public URL even if nobody is told it. Until Kevin decides to make the tuner public, responses carry `X-Robots-Tag: noindex` (Kevin agreed).
 - Creating the project and the first deploy are outward-facing: the builder confirms with Kevin before doing them.
 
 ## Left to the builder
