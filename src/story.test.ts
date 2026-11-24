@@ -3,7 +3,14 @@ import { given, message, model, story } from 'foldkit/story'
 import { modifyFields } from 'foldkit/struct'
 import { describe, expect, test } from 'vitest'
 
-import { Message, type Model, TunerState, init, update } from './main'
+import {
+  Message,
+  type Model,
+  TunerState,
+  init,
+  managedResources,
+  update,
+} from './main'
 
 const offModel: Model = init().model
 
@@ -326,5 +333,39 @@ describe('readings', () => {
         expect(needleOf(next)).toBe(0)
       }),
     )
+  })
+})
+
+describe('microphone requirement', () => {
+  test.each([
+    ['starting', startingModel],
+    ['listening', listening()],
+  ])('the microphone is required while %s', (_name, start) => {
+    expect(managedResources.microphone.modelToMaybeRequirements(start)).toEqual(
+      Option.some(null),
+    )
+  })
+
+  test.each([
+    ['off', offModel],
+    ['failed', failedModel],
+  ])('the microphone is not required while %s', (_name, start) => {
+    expect(managedResources.microphone.modelToMaybeRequirements(start)).toEqual(
+      Option.none(),
+    )
+  })
+
+  test('acquiring, failing and releasing each report their Message', () => {
+    expect(managedResources.microphone.onAcquired()).toEqual(
+      Message.SucceededAcquireMicrophone(),
+    )
+    expect(managedResources.microphone.onReleased()).toEqual(
+      Message.ReleasedMicrophone(),
+    )
+    expect(
+      managedResources.microphone.onAcquireError(
+        new Error('The device is busy'),
+      ),
+    ).toEqual(Message.FailedAcquireMicrophone({ reason: 'The device is busy' }))
   })
 })

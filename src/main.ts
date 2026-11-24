@@ -1,9 +1,23 @@
-import { Option, Schema } from 'effect'
-import { type Runtime, type Update } from 'foldkit'
+import { Duration, Effect, Option, Schema, Stream } from 'effect'
+import {
+  ManagedResource,
+  type Runtime,
+  Subscription,
+  type Update,
+} from 'foldkit'
 import { defineMessageUnion } from 'foldkit/message'
 import { defineTaggedUnion } from 'foldkit/schema'
 import { modifyFields } from 'foldkit/struct'
 
+import {
+  Microphone,
+  type MicrophoneService,
+  WINDOW,
+  acquireMicrophone,
+  microphoneErrorReason,
+  readMeasurement,
+  releaseMicrophone,
+} from './microphone'
 import { Pitch, noteFromFrequency } from './pitch'
 import { DEFAULT_PREFERENCES } from './preferences'
 
@@ -13,6 +27,7 @@ export const IN_TUNE_CENTS = 5
 const NEEDLE_SNAP_CENTS = 30
 const NEEDLE_SETTLE_RATIO = 0.35
 const QUIET_TICKS_HELD = 12
+const READING_INTERVAL = Duration.millis(50)
 
 // MODEL
 
@@ -112,7 +127,7 @@ const withTuner = (model: Model, tuner: TunerState): Model =>
   modifyFields(model, { tuner: () => tuner })
 
 export const update = (model: Model, message: Message) =>
-  Message.match<Update.Return<Model, Message>>(message, {
+  Message.match<Update.Return<Model, Message, MicrophoneService>>(message, {
     ClickedPower: () => ({
       model: withTuner(
         model,
@@ -167,3 +182,70 @@ export const update = (model: Model, message: Message) =>
       ),
     }),
   })
+
+// MANAGED RESOURCE
+
+export const managedResources = ManagedResource.make<Model, Message>()(
+  entry => ({
+    microphone: entry(Schema.Option(Schema.Null), {
+      resource: Microphone,
+      modelToMaybeRequirements: model =>
+        TunerState.match(model.tuner, {
+          Off: () => Option.none(),
+          Starting: () => Option.some(null),
+          Listening: () => Option.some(null),
+          Failed: () => Option.none(),
+        }),
+      acquire: () => acquireMicrophone,
+      release: releaseMicrophone,
+      onAcquired: () => Message.SucceededAcquireMicrophone(),
+      onReleased: () => Message.ReleasedMicrophone(),
+      onAcquireError: error =>
+        Message.FailedAcquireMicrophone({
+          reason: microphoneErrorReason(error),
+        }),
+    }),
+  }),
+)
+
+// SUBSCRIPTION
+
+// NOTE: the Microphone is looked up on every tick, not once per stream. In
+// development Vite restores the Model after a reload without running init, so
+// the page can start already Listening before the Microphone is acquired
+// again. A tick that finds no Microphone emits nothing.
+const measureInput = (buffer: Float32Array<ArrayBuffer>) =>
+  Stream.fromEffect(Microphone.get).pipe(
+    Stream.map(microphone =>
+      Message.MeasuredInput(readMeasurement(microphone, buffer)),
+    ),
+    Stream.catchTag('ResourceNotAvailable', () => Stream.empty),
+  )
+
+const readings = Stream.suspend(() => {
+  const buffer = new Float32Array(WINDOW)
+
+  return Stream.tick(READING_INTERVAL).pipe(
+    Stream.flatMap(() => measureInput(buffer)),
+  )
+})
+
+export const subscriptions = Subscription.make<
+  Model,
+  Message,
+  MicrophoneService
+>()(entry => ({
+  readings: entry(
+    { isListening: Schema.Boolean },
+    {
+      modelToDependencies: model => ({
+        isListening: model.tuner._tag === 'Listening',
+      }),
+      dependenciesToStream: ({ isListening }) =>
+        Stream.when(
+          readings,
+          Effect.sync(() => isListening),
+        ),
+    },
+  ),
+}))

@@ -1,6 +1,13 @@
 import { Runtime } from 'foldkit'
 
-import { Message, Model, init, update } from './main'
+import {
+  Message,
+  Model,
+  init,
+  managedResources,
+  subscriptions,
+  update,
+} from './main'
 import { view } from './view'
 
 const DEVTOOLS_MAX_ENTRIES = 500
@@ -10,6 +17,8 @@ const application = Runtime.makeApplication({
   init,
   update,
   view,
+  managedResources,
+  subscriptions,
   container: document.getElementById('root'),
   devTools: {
     Message,
