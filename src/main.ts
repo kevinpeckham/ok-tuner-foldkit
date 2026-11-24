@@ -89,6 +89,11 @@ export type Message = typeof Message.Type
 
 // INIT
 
+// NOTE: with site data blocked, reading `localStorage` throws while the
+// storage layer is being built, outside the typed error channel. Both the
+// flags and SavePreferences therefore provide the layer first and catch the
+// whole cause after it, so blocked storage means default preferences and an
+// unsaved choice, never a crash.
 export const Flags = Schema.Struct({ preferences: Preferences })
 export type Flags = typeof Flags.Type
 
@@ -98,8 +103,8 @@ export const flags: Effect.Effect<Flags> = Effect.gen(function* () {
 
   return { preferences: preferencesFromJson(maybeJson) }
 }).pipe(
-  Effect.catch(() => Effect.succeed({ preferences: DEFAULT_PREFERENCES })),
   Effect.provide(BrowserKeyValueStore.layerLocalStorage),
+  Effect.catchCause(() => Effect.succeed({ preferences: DEFAULT_PREFERENCES })),
 )
 
 const a4ToInput = (a4: number): string => `${a4}`
@@ -129,8 +134,8 @@ export const SavePreferences = Command.define('SavePreferences', {
 
       return Message.SucceededSavePreferences()
     }).pipe(
-      Effect.catch(() => Effect.succeed(Message.FailedSavePreferences())),
       Effect.provide(BrowserKeyValueStore.layerLocalStorage),
+      Effect.catchCause(() => Effect.succeed(Message.FailedSavePreferences())),
     ),
 })
 
