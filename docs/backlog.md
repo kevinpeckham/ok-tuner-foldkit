@@ -39,18 +39,14 @@ Items are grouped by kind, not ranked.
 - **"Built with Foldkit"** in the footer, linking to the Foldkit project.
 - **Ad-free and tracker-free, in the title.** Update the page title to say so.
 - **Ad-free and tracker-free, in the copy.** Add a line to the page saying so.
+- **A custom crash screen** in place of Foldkit's default, which is written for developers.
 - **Favicon.** There is none, so every load logs one 404.
 - **Font.** The system font is fine for now; may be revisited.
 
-> Wording is to be settled when this work starts. Sentry is also planned, and error reporting sends data about a visit to a third party, so plain "tracker-free" may claim too much. Kevin's suggestion (2026-11-24): "ad-free, ad-tracker-free" may be the more precise claim.
+> Wording is to be settled when this work starts. Sentry reports errors to a third party, and although no IP address is stored, Sentry attaches an approximate location (country, region, city) to each report, so plain "tracker-free" may claim too much. Kevin's suggestion (2026-11-24): "ad-free, ad-tracker-free" may be the more precise claim.
 
 ## Going public
 
 - **Make the page crawlable.** Remove `noindex` from `vercel.json` and `index.html`, and prerender the page so crawlers get content without running JavaScript.
 - **Open Graph:** title, description and a share image.
-- **Content Security Policy** and the other security headers, in `vercel.json`. The app needs no third-party origins today, so the policy can be strict; Sentry would add one.
-
-## Tooling and services
-
-- **Sentry.** After a working prototype.
-- **Varlock and 1Password,** when the first secret is needed (most likely with Sentry).
+- **Content Security Policy** and the other security headers, in `vercel.json`. The one third-party origin to allow is Sentry's ingest host, `https://o4505247956860928.ingest.us.sentry.io`, so the policy can be strict.
