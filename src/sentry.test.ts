@@ -1,9 +1,11 @@
 import { Effect, Option } from 'effect'
+import { modifyFields } from 'foldkit/struct'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import * as Sentry from '@sentry/browser'
 
-import { Message, ReportProblem } from './main'
+import { Message, ReportProblem, TunerState, init } from './main'
+import { DEFAULT_PREFERENCES } from './preferences'
 import {
   DETAIL_LIMIT,
   SENTRY_DSN,
@@ -11,6 +13,7 @@ import {
   initSentry,
   reportCrash,
   reportMicrophoneProblem,
+  reportsFrom,
   sentryOptions,
 } from './sentry'
 
@@ -42,6 +45,7 @@ const startRecording = (): Recording => {
   const sent: Array<Envelope> = []
   const events: Array<Sentry.ErrorEvent> = []
   initSentry({
+    enabled: true,
     transport: recordingTransport(sent),
     beforeSend: event => {
       events.push(event)
@@ -98,6 +102,23 @@ describe('environmentOf', () => {
   })
 })
 
+describe('reportsFrom', () => {
+  test.each([
+    ['ok-tuner.vercel.app', true],
+    ['ok-tuner-lightning-jar.vercel.app', true],
+    ['ok-tuner-git-feat-x-lightning-jar.vercel.app', true],
+    ['ok-tuner-88kx3anqq-lightning-jar.vercel.app', true],
+    ['ok-tuner.bench.lj.dev', true],
+    ['localhost', false],
+    ['ok-tuner-fork-someone.vercel.app', false],
+    ['someone-lightning-jar.vercel.app', false],
+    ['', false],
+  ])('%s reports: %s', (hostname, reports) => {
+    expect(reportsFrom(hostname)).toBe(reports)
+    expect(sentryOptions(hostname).enabled).toBe(reports)
+  })
+})
+
 describe('sentryOptions', () => {
   test('reports errors only, to this project, tagged by hostname', () => {
     const options = sentryOptions('localhost')
@@ -109,7 +130,7 @@ describe('sentryOptions', () => {
     expect(sentryOptions('ok-tuner.vercel.app').environment).toBe('production')
   })
 
-  test('collects nothing about the visitor', () => {
+  test('switches off every data-collection category', () => {
     expect(sentryOptions('localhost').dataCollection).toEqual({
       userInfo: false,
       cookies: false,
@@ -126,7 +147,11 @@ describe('initSentry', () => {
   // session integration still installed.
   test('initialising sends nothing, even with a release set', async () => {
     const sent: Array<Envelope> = []
-    initSentry({ transport: recordingTransport(sent), release: 'a-release' })
+    initSentry({
+      enabled: true,
+      transport: recordingTransport(sent),
+      release: 'a-release',
+    })
 
     await Sentry.flush()
 
@@ -164,7 +189,58 @@ describe('initSentry', () => {
   })
 })
 
+describe('a host that is not ours', () => {
+  test('a copy of the app running elsewhere sends nothing', async () => {
+    const sent: Array<Envelope> = []
+    initSentry({ transport: recordingTransport(sent) })
+
+    reportCrash({
+      error: new Error('boom'),
+      model: {},
+      message: Option.none(),
+    })
+    reportMicrophoneProblem({ name: 'Error', detail: 'elsewhere' })
+    await Sentry.flush()
+
+    expect(window.location.hostname).toBe('localhost')
+    expect(sent).toHaveLength(0)
+  })
+})
+
 describe('reportCrash', () => {
+  test('a crash keeps the nested parts of the model and the message', async () => {
+    const { events } = startRecording()
+    const reading = Option.some({ frequency: 110, clarity: 0.95 })
+    const model = modifyFields(
+      init({ preferences: DEFAULT_PREFERENCES }).model,
+      {
+        tuner: () =>
+          TunerState.Listening({
+            level: 0.5,
+            maybeReading: reading,
+            needleCents: 3,
+            quietTicks: 0,
+          }),
+      },
+    )
+
+    reportCrash({
+      error: new Error('boom'),
+      model,
+      message: Option.some(
+        Message.MeasuredInput({ level: 0.25, maybePitch: reading }),
+      ),
+    })
+    await Sentry.flush()
+
+    const sentModel = JSON.stringify(events[0]?.extra?.['model'])
+    const sentMessage = JSON.stringify(events[0]?.extra?.['message'])
+    expect(sentModel).toContain('"frequency":110')
+    expect(sentModel).not.toContain('[Object]')
+    expect(sentModel).not.toContain('[Array]')
+    expect(sentMessage).toContain('"frequency":110')
+  })
+
   test('a crash is sent as an exception with the model and the message', async () => {
     const { sent, events } = startRecording()
 
@@ -274,7 +350,7 @@ describe('ReportProblem', () => {
   // that escaped the SDK would fail this test without an assertion for it.
   test('completes when Sentry cannot be reached', async () => {
     const send = vi.fn(() => Promise.reject(new Error('blocked')))
-    initSentry({ transport: unreachableTransport(send) })
+    initSentry({ enabled: true, transport: unreachableTransport(send) })
 
     const result = await Effect.runPromise(ReportProblem(problem).effect)
     await Sentry.flush()

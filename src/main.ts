@@ -204,8 +204,8 @@ const hearNothing = (listening: Listening, level: number): TunerState => {
 const withTuner = (model: Model, tuner: TunerState): Model =>
   modifyFields(model, { tuner: () => tuner })
 
-// A refusal and an unsupported browser are the person's own situation. Anything
-// else means something is broken, so it is reported.
+// NOTE: a refusal and an unsupported browser are the person's own situation,
+// so they are not reported. Anything else means something is broken.
 const failWith = (
   model: Model,
   failure: MicrophoneFailure,

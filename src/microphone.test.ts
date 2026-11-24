@@ -103,6 +103,16 @@ describe('failureSentence', () => {
     ).toBe('The device is busy')
   })
 
+  test('a very long message is shown whole', () => {
+    const long = 'x'.repeat(1000)
+
+    expect(
+      failureSentence(
+        MicrophoneFailure.Unexpected({ name: 'Error', detail: long }),
+      ),
+    ).toBe(long)
+  })
+
   test('an unexpected error with nothing to say gets a plain fallback', () => {
     expect(
       failureSentence(

@@ -8,18 +8,31 @@ import * as Sentry from '@sentry/browser'
 export const SENTRY_DSN =
   'https://5e7e796c6a347b35e4a1402e17517f4a@o4505247956860928.ingest.us.sentry.io/4512488535621632'
 
-// Vercel serves the production deployment at both.
+// NOTE: Vercel serves the production deployment at both of these.
 const PRODUCTION_HOSTNAMES: ReadonlyArray<string> = [
   'ok-tuner.vercel.app',
   'ok-tuner-lightning-jar.vercel.app',
 ]
 const VERCEL_HOSTNAME_SUFFIX = '.vercel.app'
 
-// The integration that tells Sentry about every visit, crash or not.
+// NOTE: the repository is public, so a copy of this app can run anywhere: a
+// fork on someone else's Vercel account, or `bun run dev` on any machine.
+// Reports are sent only from the hosts below. A custom domain must be added
+// here, or the site on it will report nothing.
+const OUR_PREVIEW_PREFIX = 'ok-tuner-'
+const OUR_PREVIEW_SUFFIX = '-lightning-jar.vercel.app'
+const OUR_DEVELOPMENT_HOSTNAME = 'ok-tuner.bench.lj.dev'
+
+// NOTE: this integration tells Sentry about every visit, crash or not. It is
+// a default, and only sends once a release is set, which the build does.
 const SESSION_INTEGRATION_NAME = 'BrowserSession'
 
 /** A browser's error text is sent to Sentry cut to this many characters. */
 export const DETAIL_LIMIT = 300
+
+// NOTE: the SDK flattens anything nested deeper than 3 to "[Object]" by
+// default, which loses the current reading from a crash report's Model.
+const NORMALIZE_DEPTH = 10
 
 // ENVIRONMENT
 
@@ -36,14 +49,25 @@ export const environmentOf = (hostname: string): SentryEnvironment => {
   }
 }
 
+/** Whether this hostname is one of ours, and so reports to Sentry. */
+export const reportsFrom = (hostname: string): boolean =>
+  PRODUCTION_HOSTNAMES.includes(hostname) ||
+  hostname === OUR_DEVELOPMENT_HOSTNAME ||
+  (String.startsWith(OUR_PREVIEW_PREFIX)(hostname) &&
+    String.endsWith(OUR_PREVIEW_SUFFIX)(hostname))
+
 // OPTIONS
 
-/** Errors only. Nothing is sent on a visit where nothing went wrong, and
- *  nothing about the visitor is collected when something does. */
+/** Errors only, and only from our own hosts. Nothing is sent on a visit where
+ *  nothing went wrong. An error report carries the page URL, the browser's
+ *  locale and timezone, and recent clicks and console lines; the SDK's
+ *  collection of IP address, cookies, headers and query strings is off. */
 export const sentryOptions = (hostname: string): Sentry.BrowserOptions => ({
   dsn: SENTRY_DSN,
+  enabled: reportsFrom(hostname),
   environment: environmentOf(hostname),
   attachStacktrace: true,
+  normalizeDepth: NORMALIZE_DEPTH,
   dataCollection: {
     userInfo: false,
     cookies: false,
@@ -66,7 +90,7 @@ export const initSentry = (
   try {
     Sentry.init({ ...sentryOptions(window.location.hostname), ...overrides })
   } catch {
-    // Start without reporting.
+    return
   }
 }
 
