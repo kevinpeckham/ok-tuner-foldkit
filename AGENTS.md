@@ -6,7 +6,7 @@ Foldkit owns `FOLDKIT.md` and replaces it whole on upgrade. This file is yours. 
 
 `FOLDKIT.md` reads the line below to decide whether it has already offered to vendor the Foldkit source. Leave it in place.
 
-subtree_prompted: false
+subtree_prompted: true
 
 ## Project Notes
 
@@ -20,3 +20,21 @@ A persistent dev server runs as the systemd user service `ok-tuner-dev` (launche
 - Logs: `journalctl --user -u ok-tuner-dev -f`
 
 The port and the allowed host are passed by the launcher, so `vite.config.ts` carries nothing specific to the VM.
+
+### What this app is
+
+OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `src/lib/components/Tuner.svelte`), written to learn Foldkit. The design is `docs/superpowers/specs/2026-11-24-tuner-design.md`.
+
+### Conventions that differ from Foldkit's defaults
+
+- `src/pitch.ts` uses `for` and `while` loops and mutable locals on purpose. Each reading compares millions of samples, so this one module is exempt from the "no loops" rule. Keep the exemption to that file.
+- Commit messages carry no `Co-Authored-By` or other attribution lines.
+
+### Deliberately later
+
+Each of these is planned, not forgotten. Do not add one as a side effect of other work:
+
+- Sentry.
+- Varlock and 1Password, when the first secret is needed (most likely with Sentry).
+- Starting to listen when the pointer enters the page.
+- Prerendering and search-engine work, if the tuner goes public. Until then `vercel.json` and `index.html` both say `noindex`.
