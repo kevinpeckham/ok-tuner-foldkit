@@ -37,6 +37,7 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 
 - Sentry project `ok-tuner` in the `lightning-jar` organisation. Only `src/sentry.ts` and its test import `@sentry/browser`.
 - Errors only: a visit where nothing goes wrong sends nothing. Do not add tracing, replay, the session integration, or anything that identifies a visitor.
+- `@sentry/vite-plugin` must stay at 11.16.0 or later. Earlier versions bundle an upload tool (`sentry` 0.49.0) that, on Vite 8, adds a line to the uploaded copy of the bundle, so every stack frame in Sentry resolves one line off ([sentry-javascript #26658](https://github.com/getsentry/sentry-javascript/issues/26658)). After changing its version, send a test report from production and check that its frames name files under `src/`.
 - A caught failure worth reporting is reported by a Command returned from `update` (`ReportProblem`), not from inside the code that caught it. A person's own choice (refusing the microphone, blocking storage) is not reported.
 - Reports are sent only from our own hosts (`reportsFrom` in `src/sentry.ts`): production, our Vercel previews, and the dev server at `ok-tuner.bench.lj.dev`, tagged `development`. `localhost` reports nothing. A custom domain must be added there. Resolve test issues you create.
 
