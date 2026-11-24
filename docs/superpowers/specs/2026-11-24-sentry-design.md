@@ -1,6 +1,6 @@
 # Error reporting with Sentry, secrets with Varlock: design
 
-Status: draft, awaiting Kevin's approval. A builder's read-through on 2026-11-24 is folded in.
+Status: approved by Kevin on 2026-11-24. A builder's read-through of the same day is folded in.
 
 ## Intent
 
@@ -63,8 +63,8 @@ Everything else below is the designer's call, open to correction.
 
 ### Sentry project
 
-- Organisation `lightning-jar`, team `lightning-jar`, new project `ok-tuner`, platform browser JavaScript. Created through the Sentry connector once this design is approved.
-- "Prevent storing of IP addresses" is switched on for the project. If the connector cannot set it, Kevin switches it on in the project's Security & Privacy settings; the work is not done until it is on.
+- Organisation `lightning-jar`, team `lightning-jar`, project `ok-tuner`, platform browser JavaScript. Created through the Sentry connector on 2026-11-24. Its DSN, a public value: `https://5e7e796c6a347b35e4a1402e17517f4a@o4505247956860928.ingest.us.sentry.io/4512488535621632`.
+- "Prevent storing of IP addresses" is switched on for the project. The connector cannot set it, so Kevin switches it on in the project's Security & Privacy settings; the work is not done until it is on.
 
 ### The SDK in the browser
 
@@ -78,7 +78,7 @@ Everything else below is the designer's call, open to correction.
   - **Every data-collection category off.** Current SDKs replace `sendDefaultPii` with `dataCollection`, whose defaults are on and include inferring the IP address. User information, cookies, headers, query parameters and request bodies are all switched off, as Stem Shovel does in `src/hooks.client.ts`. The builder confirms the option names against the installed SDK version.
   - `attachStacktrace: true`, so a reported message carries the stack of the call that reported it.
 - `environment` is decided from the hostname by a pure, tested function:
-  - `ok-tuner.vercel.app` is `production`;
+  - `ok-tuner.vercel.app` and `ok-tuner-lightning-jar.vercel.app` are `production` (Vercel serves the production deployment at both);
   - any other `*.vercel.app` is `preview`;
   - anything else (`localhost`, `ok-tuner.bench.lj.dev`) is `development`.
 - Sentry is on in development too, as in Stem Shovel. The environment tag keeps the three apart.
@@ -129,7 +129,7 @@ Not reported: `FailedSavePreferences`. The app cannot tell blocked storage from 
 - On an invalid or unresolvable environment the plugin ends a build with an error and, in development, serves an error page in place of the app.
 - The app's browser code reads no environment variable in this change. The schema and plugin are still the real thing: they resolve from 1Password at every dev start and every Vercel build.
 - `.mcp.json` gains the `varlock-docs-mcp` server.
-- Kevin puts `OP_TOKEN` and `OP_ENV_ID` in the Vercel project (Production and Preview) and in `.env.local` on the VM. Nobody pastes either into a session. As of 2026-11-24 `.env.local` is in place on the VM with both lines in the expected shape; the Vercel project has no variables yet.
+- Kevin puts `OP_TOKEN` and `OP_ENV_ID` in the Vercel project (Production and Preview) and in `.env.local` on the VM. Nobody pastes either into a session. As of 2026-11-24 both are in place, and `SENTRY_AUTH_TOKEN` is in the 1Password environment.
 - **Fork pull requests.** The repository is public and a preview build runs the pull request's own `vite.config.ts` with `OP_TOKEN` in its environment. Vercel's Git Fork Protection, which holds a fork's pull request until a team member authorises it, is what stops a stranger reading the token. It was on for this project when checked on 2026-11-24. The plan checks it again before `OP_TOKEN` goes into Vercel, and stops if it is off.
 
 ### Order of work

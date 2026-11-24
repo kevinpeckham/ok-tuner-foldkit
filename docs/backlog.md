@@ -36,6 +36,7 @@ Items are grouped by kind, not ranked.
 ## Page content
 
 - **Footer:** copyright, attribution, and links to Stem Shovel and Lightning Jar.
+- **"Built with Foldkit"** in the footer, linking to the Foldkit project.
 - **Ad-free and tracker-free, in the title.** Update the page title to say so.
 - **Ad-free and tracker-free, in the copy.** Add a line to the page saying so.
 - **Favicon.** There is none, so every load logs one 404.
