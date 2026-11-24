@@ -11,3 +11,12 @@ subtree_prompted: false
 ## Project Notes
 
 Domain vocabulary, deployment steps, local conventions that differ from Foldkit's defaults: write them here.
+
+### Dev server on the lj-bench VM
+
+A persistent dev server runs as the systemd user service `ok-tuner-dev` (launcher `~/bin/ok-tuner-dev`) on `localhost:5273`. Caddy serves it at <https://ok-tuner.bench.lj.dev/>, reachable only from the tailnet. Do not start a second `bun run dev`: edit the source and the running server hot-reloads.
+
+- Restart: `systemctl --user restart ok-tuner-dev`
+- Logs: `journalctl --user -u ok-tuner-dev -f`
+
+The port and the allowed host are passed by the launcher, so `vite.config.ts` carries nothing specific to the VM.
