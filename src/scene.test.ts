@@ -25,6 +25,7 @@ import { Popover } from '@foldkit/ui'
 import {
   Message,
   type Model,
+  ReportProblem,
   SavePreferences,
   TunerState,
   init,
@@ -116,9 +117,44 @@ describe('power', () => {
         managedResources.microphone,
         Object.assign(new Error('denied'), { name: 'NotAllowedError' }),
       ),
+      Command.expectNone(),
       expect(role('alert')).toHaveText(REFUSED),
       expect(powerButton).toHaveAttr('aria-pressed', 'false'),
       expect(powerButton).toBeEnabled(),
+    )
+  })
+
+  test('an unexpected microphone error shows the browser’s message', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      click(powerButton),
+      ManagedResource.failAcquire(
+        managedResources.microphone,
+        Object.assign(new Error('The device is busy'), {
+          name: 'NotReadableError',
+        }),
+      ),
+      Command.expectExact(
+        ReportProblem({
+          name: 'NotReadableError',
+          detail: 'The device is busy',
+        }),
+      ),
+      Command.resolve(ReportProblem, Message.CompletedReportProblem()),
+      expect(role('alert')).toHaveText('The device is busy'),
+    )
+  })
+
+  test('an unexplained microphone error shows the fallback sentence', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      click(powerButton),
+      ManagedResource.failAcquire(managedResources.microphone, '???'),
+      Command.expectExact(ReportProblem({ name: 'Unknown', detail: '' })),
+      Command.resolve(ReportProblem, Message.CompletedReportProblem()),
+      expect(role('alert')).toHaveText('The microphone could not be opened.'),
     )
   })
 })

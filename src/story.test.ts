@@ -8,12 +8,14 @@ import { Listbox, Popover } from '@foldkit/ui'
 import {
   Message,
   type Model,
+  ReportProblem,
   SavePreferences,
   TunerState,
   init,
   managedResources,
   update,
 } from './main'
+import { MicrophoneFailure } from './microphone'
 import { DEFAULT_PREFERENCES } from './preferences'
 
 const offModel: Model = init({ preferences: DEFAULT_PREFERENCES }).model
@@ -35,7 +37,12 @@ const listening = (fields: ListeningFields = {}): Model =>
   )
 
 const startingModel = withTuner(TunerState.Starting())
-const failedModel = withTuner(TunerState.Failed({ reason: 'earlier' }))
+const unexpected = (detail: string): MicrophoneFailure =>
+  MicrophoneFailure.Unexpected({ name: 'NotReadableError', detail })
+
+const failedModel = withTuner(
+  TunerState.Failed({ failure: unexpected('earlier') }),
+)
 
 const heard = (frequency: number, level = 0.5) =>
   Message.MeasuredInput({
@@ -163,32 +170,71 @@ describe('microphone', () => {
   test.each([
     ['starting', startingModel],
     ['listening', listening({ needleCents: 12 })],
-  ])('a failure while %s shows its reason', (_name, start) => {
+  ])(
+    'an unexpected failure while %s shows its reason and is reported',
+    (_name, start) => {
+      story(
+        update,
+        given(start),
+        message(
+          Message.FailedAcquireMicrophone({
+            failure: unexpected('No microphone'),
+          }),
+        ),
+        model(next => {
+          expect(next.tuner).toEqual(
+            TunerState.Failed({ failure: unexpected('No microphone') }),
+          )
+        }),
+        Command.expectExact(
+          ReportProblem({ name: 'NotReadableError', detail: 'No microphone' }),
+        ),
+        Command.resolve(ReportProblem, Message.CompletedReportProblem()),
+        model(next => {
+          expect(next.tuner).toEqual(
+            TunerState.Failed({ failure: unexpected('No microphone') }),
+          )
+        }),
+      )
+    },
+  )
+
+  test.each([
+    ['refused', MicrophoneFailure.Refused()],
+    ['unsupported', MicrophoneFailure.Unsupported()],
+  ])('a %s microphone is not reported', (_name, failure) => {
     story(
       update,
-      given(start),
-      message(Message.FailedAcquireMicrophone({ reason: 'No microphone' })),
+      given(startingModel),
+      message(Message.FailedAcquireMicrophone({ failure })),
       model(next => {
-        expect(next.tuner).toEqual(
-          TunerState.Failed({ reason: 'No microphone' }),
-        )
+        expect(next.tuner).toEqual(TunerState.Failed({ failure }))
       }),
+      Command.expectNone(),
     )
   })
 
   test.each([
     ['off', offModel],
     ['failed', failedModel],
-  ])('a failure while %s changes nothing', (_name, start) => {
-    story(
-      update,
-      given(start),
-      message(Message.FailedAcquireMicrophone({ reason: 'No microphone' })),
-      model(next => {
-        expect(next).toEqual(start)
-      }),
-    )
-  })
+  ])(
+    'a failure while %s changes nothing and reports nothing',
+    (_name, start) => {
+      story(
+        update,
+        given(start),
+        message(
+          Message.FailedAcquireMicrophone({
+            failure: unexpected('No microphone'),
+          }),
+        ),
+        model(next => {
+          expect(next).toEqual(start)
+        }),
+        Command.expectNone(),
+      )
+    },
+  )
 
   test.each([
     ['off', offModel],
@@ -211,9 +257,15 @@ describe('microphone', () => {
       update,
       given(offModel),
       message(Message.ClickedPower()),
-      message(Message.FailedAcquireMicrophone({ reason: 'Refused' })),
+      message(
+        Message.FailedAcquireMicrophone({
+          failure: MicrophoneFailure.Refused(),
+        }),
+      ),
       model(next => {
-        expect(next.tuner).toEqual(TunerState.Failed({ reason: 'Refused' }))
+        expect(next.tuner).toEqual(
+          TunerState.Failed({ failure: MicrophoneFailure.Refused() }),
+        )
       }),
       message(Message.ClickedPower()),
       model(next => {
@@ -378,7 +430,14 @@ describe('microphone requirement', () => {
       managedResources.microphone.onAcquireError(
         new Error('The device is busy'),
       ),
-    ).toEqual(Message.FailedAcquireMicrophone({ reason: 'The device is busy' }))
+    ).toEqual(
+      Message.FailedAcquireMicrophone({
+        failure: MicrophoneFailure.Unexpected({
+          name: 'Error',
+          detail: 'The device is busy',
+        }),
+      }),
+    )
   })
 })
 

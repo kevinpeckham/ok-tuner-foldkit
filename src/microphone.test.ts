@@ -2,10 +2,13 @@ import { Cause, Effect, Exit, Option } from 'effect'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import {
+  MicrophoneError,
+  MicrophoneFailure,
   REFUSED,
   UNSUPPORTED,
   acquireMicrophone,
-  microphoneErrorReason,
+  failureSentence,
+  microphoneFailure,
   releaseMicrophone,
 } from './microphone'
 
@@ -13,39 +16,109 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const failureReason = (exit: Exit.Exit<unknown, unknown>): string =>
+const failureOf = (
+  exit: Exit.Exit<unknown, unknown>,
+): Option.Option<MicrophoneFailure> =>
   Exit.match(exit, {
-    onSuccess: () => 'acquired',
+    onSuccess: () => Option.none(),
     onFailure: cause =>
-      Option.match(Cause.findErrorOption(cause), {
-        onNone: () => 'defect',
-        onSome: microphoneErrorReason,
-      }),
+      Option.map(Cause.findErrorOption(cause), microphoneFailure),
   })
 
-describe('microphoneErrorReason', () => {
-  test('a refused permission gets the refusal wording', () => {
-    const refused = Object.assign(new Error('x'), { name: 'NotAllowedError' })
+const named = (name: string, text: string): Error =>
+  Object.assign(new Error(text), { name })
 
-    expect(microphoneErrorReason(refused)).toBe(REFUSED)
+describe('microphoneFailure', () => {
+  test('a MicrophoneError gives the failure it carries', () => {
+    expect(
+      microphoneFailure(
+        new MicrophoneError({ failure: MicrophoneFailure.Unsupported() }),
+      ),
+    ).toEqual(MicrophoneFailure.Unsupported())
+  })
+
+  test('a refused permission is Refused', () => {
+    expect(microphoneFailure(named('NotAllowedError', 'denied'))).toEqual(
+      MicrophoneFailure.Refused(),
+    )
+  })
+
+  test('another error keeps its name and message', () => {
+    expect(
+      microphoneFailure(named('NotReadableError', 'The device is busy')),
+    ).toEqual(
+      MicrophoneFailure.Unexpected({
+        name: 'NotReadableError',
+        detail: 'The device is busy',
+      }),
+    )
+  })
+
+  test.each([
+    ['a string', '???'],
+    ['undefined', undefined],
+    ['an object with no name', { code: 7 }],
+  ])('%s is Unexpected with no name and nothing to say', (_name, thrown) => {
+    expect(microphoneFailure(thrown)).toEqual(
+      MicrophoneFailure.Unexpected({ name: 'Unknown', detail: '' }),
+    )
+  })
+
+  test('an error-like object that is not an Error gives its name and message', () => {
+    expect(
+      microphoneFailure({
+        name: 'NotFoundError',
+        message: 'Requested device not found',
+      }),
+    ).toEqual(
+      MicrophoneFailure.Unexpected({
+        name: 'NotFoundError',
+        detail: 'Requested device not found',
+      }),
+    )
+  })
+})
+
+describe('failureSentence', () => {
+  test('a refusal says how to allow the microphone', () => {
+    expect(failureSentence(MicrophoneFailure.Refused())).toBe(REFUSED)
     expect(REFUSED).toBe(
       'Microphone access was refused. Allow it in the browser to tune.',
     )
   })
 
-  test('another error gives its own message', () => {
-    expect(microphoneErrorReason(new Error('The device is busy'))).toBe(
-      'The device is busy',
-    )
+  test('an unsupported browser is named as such', () => {
+    expect(failureSentence(MicrophoneFailure.Unsupported())).toBe(UNSUPPORTED)
+    expect(UNSUPPORTED).toBe('This browser cannot open the microphone.')
   })
 
-  test('an error with nothing to say gets a plain fallback', () => {
-    expect(microphoneErrorReason('???')).toBe(
-      'The microphone could not be opened.',
-    )
-    expect(microphoneErrorReason(new Error(''))).toBe(
-      'The microphone could not be opened.',
-    )
+  test('an unexpected error gives its own message', () => {
+    expect(
+      failureSentence(
+        MicrophoneFailure.Unexpected({
+          name: 'NotReadableError',
+          detail: 'The device is busy',
+        }),
+      ),
+    ).toBe('The device is busy')
+  })
+
+  test('a very long message is shown whole', () => {
+    const long = 'x'.repeat(1000)
+
+    expect(
+      failureSentence(
+        MicrophoneFailure.Unexpected({ name: 'Error', detail: long }),
+      ),
+    ).toBe(long)
+  })
+
+  test('an unexpected error with nothing to say gets a plain fallback', () => {
+    expect(
+      failureSentence(
+        MicrophoneFailure.Unexpected({ name: 'Unknown', detail: '' }),
+      ),
+    ).toBe('The microphone could not be opened.')
   })
 })
 
@@ -55,11 +128,12 @@ describe('acquireMicrophone', () => {
 
     const exit = await Effect.runPromiseExit(acquireMicrophone)
 
-    expect(failureReason(exit)).toBe(UNSUPPORTED)
-    expect(UNSUPPORTED).toBe('This browser cannot open the microphone.')
+    expect(failureOf(exit)).toEqual(
+      Option.some(MicrophoneFailure.Unsupported()),
+    )
   })
 
-  test('a refused permission fails with the refusal wording', async () => {
+  test('a refused permission fails as refused', async () => {
     vi.stubGlobal('navigator', {
       mediaDevices: {
         getUserMedia: () =>
@@ -71,7 +145,7 @@ describe('acquireMicrophone', () => {
 
     const exit = await Effect.runPromiseExit(acquireMicrophone)
 
-    expect(failureReason(exit)).toBe(REFUSED)
+    expect(failureOf(exit)).toEqual(Option.some(MicrophoneFailure.Refused()))
   })
 
   test('when the audio context cannot be created, the opened stream is stopped', async () => {
@@ -92,7 +166,11 @@ describe('acquireMicrophone', () => {
 
     const exit = await Effect.runPromiseExit(acquireMicrophone)
 
-    expect(failureReason(exit)).toBe('no audio')
+    expect(failureOf(exit)).toEqual(
+      Option.some(
+        MicrophoneFailure.Unexpected({ name: 'Error', detail: 'no audio' }),
+      ),
+    )
     expect(stop).toHaveBeenCalledTimes(1)
   })
 

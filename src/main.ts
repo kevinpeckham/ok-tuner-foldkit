@@ -16,10 +16,11 @@ import { Listbox, Popover } from '@foldkit/ui'
 
 import {
   Microphone,
+  MicrophoneFailure,
   type MicrophoneService,
   WINDOW,
   acquireMicrophone,
-  microphoneErrorReason,
+  microphoneFailure,
   readMeasurement,
   releaseMicrophone,
 } from './microphone'
@@ -32,6 +33,7 @@ import {
   preferencesFromJson,
   preferencesToJson,
 } from './preferences'
+import { reportMicrophoneProblem } from './sentry'
 import { type Tuning } from './tuning'
 
 // CONSTANT
@@ -53,7 +55,7 @@ export const TunerState = defineTaggedUnion({
     needleCents: Schema.Number,
     quietTicks: Schema.Number,
   },
-  Failed: { reason: Schema.String },
+  Failed: { failure: MicrophoneFailure },
 })
 export type TunerState = typeof TunerState.Type
 
@@ -76,7 +78,7 @@ export type Model = typeof Model.Type
 export const Message = defineMessageUnion({
   ClickedPower: {},
   SucceededAcquireMicrophone: {},
-  FailedAcquireMicrophone: { reason: Schema.String },
+  FailedAcquireMicrophone: { failure: MicrophoneFailure },
   ReleasedMicrophone: {},
   MeasuredInput: { level: Schema.Number, maybePitch: Schema.Option(Pitch) },
   GotTuningListboxMessage: { message: Listbox.Message },
@@ -84,6 +86,7 @@ export const Message = defineMessageUnion({
   UpdatedA4Input: { value: Schema.String },
   SucceededSavePreferences: {},
   FailedSavePreferences: {},
+  CompletedReportProblem: {},
 })
 export type Message = typeof Message.Type
 
@@ -139,6 +142,16 @@ export const SavePreferences = Command.define('SavePreferences', {
     ),
 })
 
+export const ReportProblem = Command.define('ReportProblem', {
+  args: { name: Schema.String, detail: Schema.String },
+  messages: [Message.CompletedReportProblem],
+  execute: problem =>
+    Effect.sync(() => reportMicrophoneProblem(problem)).pipe(
+      Effect.as(Message.CompletedReportProblem()),
+      Effect.catchCause(() => Effect.succeed(Message.CompletedReportProblem())),
+    ),
+})
+
 // UPDATE
 
 const freshListening = (): TunerState =>
@@ -190,6 +203,20 @@ const hearNothing = (listening: Listening, level: number): TunerState => {
 
 const withTuner = (model: Model, tuner: TunerState): Model =>
   modifyFields(model, { tuner: () => tuner })
+
+// NOTE: a refusal and an unsupported browser are the person's own situation,
+// so they are not reported. Anything else means something is broken.
+const failWith = (
+  model: Model,
+  failure: MicrophoneFailure,
+): Update.Return<Model, Message> => ({
+  model: withTuner(model, TunerState.Failed({ failure })),
+  commands: MicrophoneFailure.match(failure, {
+    Refused: () => [],
+    Unsupported: () => [],
+    Unexpected: ({ name, detail }) => [ReportProblem({ name, detail })],
+  }),
+})
 
 const foldTuningListboxOutMessage = Listbox.OutMessage.match<
   Update.Step<Model, Message>
@@ -270,17 +297,13 @@ export const update = (model: Model, message: Message) =>
       ),
     }),
 
-    FailedAcquireMicrophone: ({ reason }) => ({
-      model: withTuner(
-        model,
-        TunerState.match(model.tuner, {
-          Off: off => off,
-          Starting: () => TunerState.Failed({ reason }),
-          Listening: () => TunerState.Failed({ reason }),
-          Failed: failed => failed,
-        }),
-      ),
-    }),
+    FailedAcquireMicrophone: ({ failure }) =>
+      TunerState.match(model.tuner, {
+        Off: () => ({ model }),
+        Starting: () => failWith(model, failure),
+        Listening: () => failWith(model, failure),
+        Failed: () => ({ model }),
+      }),
 
     ReleasedMicrophone: () => ({ model }),
 
@@ -309,6 +332,8 @@ export const update = (model: Model, message: Message) =>
     SucceededSavePreferences: () => ({ model }),
 
     FailedSavePreferences: () => ({ model }),
+
+    CompletedReportProblem: () => ({ model }),
   })
 
 // MANAGED RESOURCE
@@ -330,7 +355,7 @@ export const managedResources = ManagedResource.make<Model, Message>()(
       onReleased: () => Message.ReleasedMicrophone(),
       onAcquireError: error =>
         Message.FailedAcquireMicrophone({
-          reason: microphoneErrorReason(error),
+          failure: microphoneFailure(error),
         }),
     }),
   }),
