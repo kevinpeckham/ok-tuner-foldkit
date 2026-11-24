@@ -41,7 +41,7 @@ Items are grouped by kind, not ranked.
 - **Favicon.** There is none, so every load logs one 404.
 - **Font.** The system font is fine for now; may be revisited.
 
-> Before the page claims "tracker-free": Sentry is also planned. Error reporting sends data about a visit to a third party. Decide whether Sentry fits the claim (errors only, no session replay, no performance tracing, no user identifiers), and word the claim to match what the page really does.
+> Wording is to be settled when this work starts. Sentry is also planned, and error reporting sends data about a visit to a third party, so plain "tracker-free" may claim too much. Kevin's suggestion (2026-11-24): "ad-free, ad-tracker-free" may be the more precise claim.
 
 ## Going public
 
