@@ -16,6 +16,7 @@ import {
   TunerState,
   TuningListbox,
 } from './main'
+import { failureSentence } from './microphone'
 import {
   type Note,
   frequencyOfMidi,
@@ -78,9 +79,9 @@ const toDisplay = (model: Model): Display =>
         isInTune: Math.abs(needleCents) <= IN_TUNE_CENTS,
       })),
     }),
-    Failed: ({ reason }) => ({
+    Failed: ({ failure }) => ({
       ...quietDisplay,
-      maybeFailure: Option.some(reason),
+      maybeFailure: Option.some(failureSentence(failure)),
     }),
   })
 

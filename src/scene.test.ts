@@ -121,6 +121,31 @@ describe('power', () => {
       expect(powerButton).toBeEnabled(),
     )
   })
+
+  test('an unexpected microphone error shows the browser’s message', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      click(powerButton),
+      ManagedResource.failAcquire(
+        managedResources.microphone,
+        Object.assign(new Error('The device is busy'), {
+          name: 'NotReadableError',
+        }),
+      ),
+      expect(role('alert')).toHaveText('The device is busy'),
+    )
+  })
+
+  test('an unexplained microphone error shows the fallback sentence', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      click(powerButton),
+      ManagedResource.failAcquire(managedResources.microphone, '???'),
+      expect(role('alert')).toHaveText('The microphone could not be opened.'),
+    )
+  })
 })
 
 describe('screen', () => {

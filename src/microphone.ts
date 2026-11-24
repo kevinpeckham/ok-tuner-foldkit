@@ -1,5 +1,6 @@
-import { Data, Effect, Predicate, String, pipe } from 'effect'
+import { Data, Effect, Option, Predicate, Schema, String, pipe } from 'effect'
 import { ManagedResource } from 'foldkit'
+import { defineTaggedUnion } from 'foldkit/schema'
 
 import { type Measurement, measure } from './pitch'
 
@@ -13,6 +14,7 @@ export const UNSUPPORTED = 'This browser cannot open the microphone.'
 const UNEXPLAINED = 'The microphone could not be opened.'
 
 const REFUSED_ERROR_NAME = 'NotAllowedError'
+const UNKNOWN_ERROR_NAME = 'Unknown'
 
 const AUDIO_CONSTRAINTS: MediaStreamConstraints = {
   audio: {
@@ -35,34 +37,65 @@ export type MicrophoneHandle = Readonly<{
 export const Microphone = ManagedResource.tag<MicrophoneHandle>()('Microphone')
 export type MicrophoneService = ManagedResource.ServiceOf<typeof Microphone>
 
-// ERROR
+// FAILURE
+
+export const MicrophoneFailure = defineTaggedUnion({
+  Refused: {},
+  Unsupported: {},
+  Unexpected: { name: Schema.String, detail: Schema.String },
+})
+export type MicrophoneFailure = typeof MicrophoneFailure.Type
 
 export class MicrophoneError extends Data.TaggedError('MicrophoneError')<{
-  reason: string
+  failure: MicrophoneFailure
 }> {}
 
-const hasName =
-  (name: string) =>
-  (error: unknown): boolean =>
-    Predicate.hasProperty(error, 'name') && error.name === name
+const textProperty =
+  (property: string) =>
+  (error: unknown): Option.Option<string> =>
+    Predicate.hasProperty(error, property) &&
+    Predicate.isString(error[property])
+      ? Option.some(error[property])
+      : Option.none()
 
-/** What to tell the person when the microphone could not be opened. */
-export const microphoneErrorReason = (error: unknown): string => {
+const nameOf = (error: unknown): string =>
+  pipe(
+    textProperty('name')(error),
+    Option.filter(String.isNonEmpty),
+    Option.getOrElse(() => UNKNOWN_ERROR_NAME),
+  )
+
+const detailOf = (error: unknown): string =>
+  Option.getOrElse(textProperty('message')(error), () => '')
+
+/** Sorts whatever went wrong opening the microphone into a kind: the person's
+ *  own refusal, a browser that cannot do it, or a fault worth reporting. */
+export const microphoneFailure = (error: unknown): MicrophoneFailure => {
   if (error instanceof MicrophoneError) {
-    return error.reason
-  } else if (hasName(REFUSED_ERROR_NAME)(error)) {
-    return REFUSED
-  } else if (error instanceof Error && String.isNonEmpty(error.message)) {
-    return error.message
+    return error.failure
+  } else if (nameOf(error) === REFUSED_ERROR_NAME) {
+    return MicrophoneFailure.Refused()
   } else {
-    return UNEXPLAINED
+    return MicrophoneFailure.Unexpected({
+      name: nameOf(error),
+      detail: detailOf(error),
+    })
   }
 }
+
+/** What to tell the person when the microphone could not be opened. */
+export const failureSentence = (failure: MicrophoneFailure): string =>
+  MicrophoneFailure.match(failure, {
+    Refused: () => REFUSED,
+    Unsupported: () => UNSUPPORTED,
+    Unexpected: ({ detail }) =>
+      String.isNonEmpty(detail) ? detail : UNEXPLAINED,
+  })
 
 // ACQUIRE
 
 const toMicrophoneError = (error: unknown): MicrophoneError =>
-  new MicrophoneError({ reason: microphoneErrorReason(error) })
+  new MicrophoneError({ failure: microphoneFailure(error) })
 
 const openStream: Effect.Effect<MediaStream, MicrophoneError> = Effect.suspend(
   () => {
@@ -72,7 +105,9 @@ const openStream: Effect.Effect<MediaStream, MicrophoneError> = Effect.suspend(
       Predicate.isUndefined(mediaDevices) ||
       !Predicate.isFunction(mediaDevices.getUserMedia)
     ) {
-      return Effect.fail(new MicrophoneError({ reason: UNSUPPORTED }))
+      return Effect.fail(
+        new MicrophoneError({ failure: MicrophoneFailure.Unsupported() }),
+      )
     } else {
       return Effect.tryPromise({
         try: () => mediaDevices.getUserMedia(AUDIO_CONSTRAINTS),

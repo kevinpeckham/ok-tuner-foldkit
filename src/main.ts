@@ -16,10 +16,11 @@ import { Listbox, Popover } from '@foldkit/ui'
 
 import {
   Microphone,
+  MicrophoneFailure,
   type MicrophoneService,
   WINDOW,
   acquireMicrophone,
-  microphoneErrorReason,
+  microphoneFailure,
   readMeasurement,
   releaseMicrophone,
 } from './microphone'
@@ -53,7 +54,7 @@ export const TunerState = defineTaggedUnion({
     needleCents: Schema.Number,
     quietTicks: Schema.Number,
   },
-  Failed: { reason: Schema.String },
+  Failed: { failure: MicrophoneFailure },
 })
 export type TunerState = typeof TunerState.Type
 
@@ -76,7 +77,7 @@ export type Model = typeof Model.Type
 export const Message = defineMessageUnion({
   ClickedPower: {},
   SucceededAcquireMicrophone: {},
-  FailedAcquireMicrophone: { reason: Schema.String },
+  FailedAcquireMicrophone: { failure: MicrophoneFailure },
   ReleasedMicrophone: {},
   MeasuredInput: { level: Schema.Number, maybePitch: Schema.Option(Pitch) },
   GotTuningListboxMessage: { message: Listbox.Message },
@@ -270,13 +271,13 @@ export const update = (model: Model, message: Message) =>
       ),
     }),
 
-    FailedAcquireMicrophone: ({ reason }) => ({
+    FailedAcquireMicrophone: ({ failure }) => ({
       model: withTuner(
         model,
         TunerState.match(model.tuner, {
           Off: off => off,
-          Starting: () => TunerState.Failed({ reason }),
-          Listening: () => TunerState.Failed({ reason }),
+          Starting: () => TunerState.Failed({ failure }),
+          Listening: () => TunerState.Failed({ failure }),
           Failed: failed => failed,
         }),
       ),
@@ -330,7 +331,7 @@ export const managedResources = ManagedResource.make<Model, Message>()(
       onReleased: () => Message.ReleasedMicrophone(),
       onAcquireError: error =>
         Message.FailedAcquireMicrophone({
-          reason: microphoneErrorReason(error),
+          failure: microphoneFailure(error),
         }),
     }),
   }),
