@@ -17,6 +17,7 @@ Items are grouped by kind, not ranked.
 ## Screen readers and keyboard
 
 - **Sharp, flat and in tune are not announced.** Only the note name is in the live region, because the detail line changes twenty times a second. Find a way to announce the tuning state without flooding (announce on change of state, not of value).
+- **The tuning picker's name is only "Tuning".** Its `aria-label` replaces the button's visible text as its accessible name, so the chosen tuning is probably not announced with the control. Not checked with a screen reader.
 - **The two E strings read the same.** Give each string an accessible name that tells low E from high E (for example the octave, "E2" and "E4").
 - **Opening the A4 menu focuses the panel, not the field.** `focusSelector: '#a4-input'` on the Popover is the likely fix; unverified.
 - **The chosen tuning is nearly invisible while the tuner is off** (5% opacity, as in the original). Reconsider.
@@ -25,6 +26,10 @@ Items are grouped by kind, not ranked.
 ## Model and code
 
 - **Mandolin and banjo tunings,** added to the nine there are.
+- **The five-string bass's low B is below what the detector hears.** `bass-5` starts at 30.9 Hz and `detectPitch` searches from 40 Hz. What the tuner shows for that string is untested. The original has the same range.
+- **"+5 cents · sharp".** The word comes from the unrounded needle and the number is rounded, so a needle at 5.4 reads "+5 cents · sharp" while 5 reads "+5 cents · in tune". Read from the code, not seen.
+- **String chips are keyed by MIDI note.** Unique in the nine tunings there are; a tuning with two strings on one note (a mandolin's paired strings, if listed singly) would give duplicate keys.
+- **`max-h-64` and `overflow-y-auto` on the tuning list do nothing.** The Listbox sets both inline. Remove the classes, or size the list the way the Listbox allows.
 - **Tuning id as a plain string.** `tuningId` is `Schema.String`, with unknown ids falling back to standard. Reconsider a literal union of the nine ids, so an invalid id cannot be represented.
 - **A4 field accepts decimals** such as 442.5 and forms such as "4e2". The design says steps of 1. Decide, then change `parseA4` and the test that pins 442.5.
 - **"-0 cents".** A needle between −0.5 and 0 prints "-0 cents", as the original does.
@@ -37,6 +42,8 @@ Items are grouped by kind, not ranked.
 - **The "no IP address" promise is pinned only through the options.** Assert on what is sent: the SDK marks each report so Sentry does not infer the address (`infer_ip: never`).
 - **`ReportProblem`'s own catch-all is not pinned.** No test makes `reportMicrophoneProblem` throw and checks the Command still completes.
 - **The blocked-storage start-up test for Sentry guards nothing today.** This SDK version does not touch storage when it starts with our options, so the test passes with or without the `try`. It is there for a later version.
+- **Three Story tests list Commands that are never returned.** `resolveAll` ignores them, so those lines assert nothing (see `FINDINGS.md`). Use `resolveAllExact`, and add a test for choosing a tuning with the list open, which returns `FocusButton` as well as `SavePreferences`.
+- **No Scene test opens the picker or the menu by clicking, or chooses a tuning.** A probe showed `click` followed by the two `Mount.resolve` steps works.
 - **Nothing automated checks that stack frames resolve.** The proof is a test report from production, by hand (see `FINDINGS.md`, "Source maps resolved one line off").
 
 ## Error reporting
@@ -45,10 +52,17 @@ Items are grouped by kind, not ranked.
 - **Production reached at a deployment's own address is tagged `preview`.** `ok-tuner-git-main-…` and the hashed address serve the production build, but the hostname is all the browser has. A build-time value would fix it, which means `src` reading the environment: decide that first (see `AGENTS.md`).
 - **Bundle size.** Sentry took the script from 398 kB to 491 kB (159 kB compressed). The Vite plugin's `bundleSizeOptimizations` may trim it. Measure before and after.
 - **`vite.config.ts` is not type-checked or linted.** Typecheck and lint cover `src` only.
+- **Switch off the rest of the SDK's data categories.** Five are off, the ones that carry a visitor's data. The others gate integrations this app does not install and are left on by default. Setting them off too makes "nothing is collected" hold whatever is installed later; the test named "switches off every data-collection category" would then be true to its name.
 - **The Sentry plan is out of date.** `docs/superpowers/plans/2026-11-24-sentry.md` still describes sending a message and plugin 11.14.0. The design's "Changes during the build" is right. Mark the plan as superseded or correct it.
+
+## Build
+
+- **Limit Tailwind's scan to `src` and `index.html`.** It reads comments and documents too, and turns ordinary words into unused rules (see `FINDINGS.md`).
+- **Strip comments from the built `index.html`,** if their 2.7 kB or their being public matters. They are there for teaching.
 
 ## Page content
 
+- **"How to use the tuner" on its own page.** Move it off the main page, so the main page is cleaner and simpler to look at. This is the app's first second page: it brings routing with it, and a link to the new page.
 - **Footer:** copyright, attribution, and links to Stem Shovel and Lightning Jar.
 - **"Built with Foldkit"** in the footer, linking to the Foldkit project.
 - **Ad-free and tracker-free, in the title.** Update the page title to say so.

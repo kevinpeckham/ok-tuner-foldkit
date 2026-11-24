@@ -83,11 +83,30 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 - **Symptom.** The open tuning list was drawn behind the tuner. A screenshot showed it; the tests could not.
 - **Fix.** `z-20` on the Listbox's items panel and on the Popover's panel, `z-10` on the backdrops.
+- **The backdrop needs it too.** Without `z-10` a click on the tuner body does not reach the backdrop, so it would not close the open list.
 - **Where.** `tuningPickerView` and `settingsMenuView` in `src/view.ts`.
 
-### Only `// NOTE:` comments (2026-11-24, Sentry)
+### The `#root` element does not survive the first render (2026-11-24, Foldkit)
 
-- **What happens.** `FOLDKIT.md` reserves comments for behaviour that would mislead a careful reader, written as `// NOTE:`. Plain explanatory comments were written during the Sentry build and had to be converted in review. Nothing in the lint catches it.
+- **What happens.** Foldkit's documentation says the view is patched "into the container". In the running page the view's root element (the `<main>`) takes the container's place: `document.getElementById('root')` is null once the app has drawn.
+- **What to do.** Do not style, select or measure `#root`. Seen in headless Chrome while the comments were being written.
+
+### `update`'s return type must name the microphone service, though no Command uses it (2026-11-24, Foldkit)
+
+- **What happens.** `Runtime.makeApplication` takes the app's set of services from the return type of `update`. The subscription needs the microphone. Remove `MicrophoneService` from `UpdateReturn` and `src/entry.ts` stops compiling, with an error about the subscription.
+- **Where.** `UpdateReturn` in `src/main.ts`.
+
+### A Listbox's open list sizes itself (2026-11-24, Foldkit)
+
+- **What happens.** The Listbox's anchoring code sets `max-height` and `overflow-y` as inline styles on the open list, which beat classes. `max-h-64` and `overflow-y-auto` on the tuning list therefore do nothing: in the browser the list was 326 px tall against the 256 px the class asks for. In the backlog.
+- **Where.** `tuningPickerView` in `src/view.ts`.
+
+### Comments: Foldkit's rule, and why this project breaks it (2026-11-24, process)
+
+- **Foldkit's rule.** `FOLDKIT.md` says not to explain code in comments, and to reserve `// NOTE:` for behaviour that would mislead a careful reader. Plain comments written during the Sentry build were converted in review for that reason. Nothing in the lint checks it.
+- **This project.** Later the same day Kevin asked for the opposite: verbose comments throughout, so the code can be read to learn Foldkit and shown to the team. `AGENTS.md` records it as a convention that differs from Foldkit's defaults.
+- **What it costs.** Comments go stale. A change to code must change the comments beside it, and a statement about Foldkit must be checked against `FOLDKIT.md` or `repos/foldkit/` before it is written.
+- **How it was checked.** The comments were added without touching code: each file, with comments stripped, was compared before and after.
 
 ## Testing
 
@@ -109,6 +128,12 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 - **What happens.** `process.on('unhandledRejection', …)` fails typecheck: the project has no Node types.
 - **What we rely on.** Vitest fails the run on any unhandled rejection. A throwaway test confirmed it. "Completes when Sentry cannot be reached" depends on this and has no assertion of its own for it.
+
+### `Command.resolveAll` passes when a listed Command was never returned (2026-11-24, tuner)
+
+- **What happens.** `resolveAll` resolves the Commands that are pending and ignores the pairs that match nothing. Three Story tests list Listbox and Popover Commands (`FocusButton`, `UnlockScroll`, `RestoreInert`) that `update` does not return on that path, so those lines assert nothing. `resolveAllExact` fails on an unused pair.
+- **What to do.** Prefer `resolveAllExact`, or `Command.expectExact` first. Tightening the three tests is in the backlog.
+- **Where.** The two "tuning" tests and "closing the A4 menu" in `src/story.test.ts`.
 
 ### Story has no managed-resource steps; Scene does (2026-11-24, tuner)
 
@@ -160,7 +185,8 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 ### The SDK's privacy switches changed name, and they default to on (2026-11-24, Sentry)
 
 - **What happens.** In `@sentry/browser` 11 the `dataCollection` option replaces `sendDefaultPii`. Its categories default to on, and one of them infers the IP address.
-- **What to do.** Switch every category off, as `sentryOptions` does. With `userInfo: false` the SDK tells Sentry not to infer the address.
+- **What to do.** Switch off the five that carry a visitor's data in a browser, as `sentryOptions` does: user information (which includes the address), cookies, headers, request bodies and query strings. With `userInfo: false` the SDK tells Sentry not to infer the address.
+- **Not literally every category.** The option has more (`graphQL`, `genAI`, `mcp`, `databaseQueryData`, `queues`, `stackFrameVariables`, `frameContextLines`), left at their defaults, which are on. Each gates an integration this app does not install, by the SDK's own description; that was read, not tested one by one. The design and one test name say "every category", which overstates it. Switching the rest off as well is in the backlog.
 - **Where.** `sentryOptions` in `src/sentry.ts`. Stem Shovel does the same in its `src/hooks.client.ts`.
 
 ### A default integration tells Sentry about every visit (2026-11-24, Sentry)
@@ -249,6 +275,21 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **Fix.** One space added in `public/favicon.svg`; nothing else was changed. Check any supplied SVG by loading it in an `<img>` before using it as a file.
 - **The set.** `public/favicon.svg` for browsers that take SVG, `favicon-48.png` for those that do not, and `apple-touch-icon.png` (180 px, on a solid square, since a phone's home screen fills transparent corners with black). The two PNGs were rendered from the SVG in headless Chrome; render them again if the SVG changes. Vite serves `public/` at the site root and copies it into `dist/`.
 - **Also.** With no icon declared, every page load asked for `/favicon.ico` and logged a 404. The declared icons end that.
+
+### Tailwind reads comments and documents as if they were markup (2026-11-24, build)
+
+- **What happens.** Tailwind 4 scans every file in the project as plain text for class names, comments and Markdown included. An ordinary word that is also a utility name becomes a rule in the built stylesheet.
+- **Seen.** The teaching comments added `.contents{display:contents}` (27 bytes) from the word "contents" in a test file's comment. The stylesheet already carried unused rules from prose in `docs/`: `.hidden`, `.static`, `.container`, `.table`, `.filter`, `.visible`, `.invisible`, `.inline`, `.ring`, `.transition`.
+- **What it costs.** A few unused rules. No class the page uses is affected.
+- **What to do.** Limiting the scan to `src` and `index.html` would end it. In the backlog. Until then, expect the built CSS to move when prose changes.
+
+### Comments in `index.html` are served (2026-11-24, build)
+
+- **What happens.** Vite does not strip HTML comments. With the teaching comments the built `index.html` is 3.4 kB where it was 0.7 kB, and the comments are readable in the page source. Comments in TypeScript and CSS are removed by the build: the built script is byte for byte what it was before they were added.
+
+### The lint and TypeScript configuration files carry comments (2026-11-24, tooling)
+
+- **What happens.** `.oxlintrc.json`, `.oxlintrc.effect.json` and `tsconfig.json` have `//` comments. oxlint 1.85.0, `tsc` 7 and oxfmt all accept them, and the lint rules were probed afterwards and still fire. A tool that reads these files as strict JSON would not; an editor without the oxc extension may underline them.
 
 ## Vercel and domains
 
