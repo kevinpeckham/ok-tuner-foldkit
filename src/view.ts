@@ -1,17 +1,29 @@
 import { Array, Option } from 'effect'
-import { type Document, type Html, type HtmlBuilder } from 'foldkit/html'
+import {
+  type Document,
+  type Html,
+  type HtmlBuilder,
+  childAttributes,
+} from 'foldkit/html'
 
-import { Button, Meter } from '@foldkit/ui'
+import { Button, Input, Meter, Popover } from '@foldkit/ui'
 
 import * as Icon from './icon'
-import { IN_TUNE_CENTS, Message, type Model, TunerState } from './main'
+import {
+  IN_TUNE_CENTS,
+  Message,
+  type Model,
+  TunerState,
+  TuningListbox,
+} from './main'
 import {
   type Note,
   frequencyOfMidi,
   noteFromFrequency,
   noteName,
 } from './pitch'
-import { type Tuning, nearestString, tuningById } from './tuning'
+import { A4_MAX, A4_MIN, parseA4 } from './preferences'
+import { TUNINGS, type Tuning, nearestString, tuningById } from './tuning'
 
 // CONSTANT
 
@@ -136,6 +148,7 @@ const tunerView = (model: Model, h: HtmlBuilder<Message>): Html => {
     [
       screenView(display, h),
       stringsView(tuning, model.a4, display, h),
+      controlsView(model, tuning, display, h),
       powerButtonView(display, h),
       failureView(display, h),
       h.div(
@@ -367,6 +380,150 @@ const stringView = (
         ],
       ),
     ],
+  )
+
+const controlsView = (
+  model: Model,
+  tuning: Tuning,
+  display: Display,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div(
+    [
+      h.Class(
+        'mt-5 grid grid-cols-[1fr_auto] place-content-center gap-3 text-[15px]',
+      ),
+    ],
+    [
+      h.div(
+        [h.Class('min-w-0 rounded-[7px] border border-blue-200/10')],
+        [tuningPickerView(model, tuning, display, h)],
+      ),
+      h.div(
+        [h.Class('rounded-[7px] border border-blue-200/10')],
+        [settingsMenuView(model, display, h)],
+      ),
+    ],
+  )
+
+const tuningPickerView = (
+  model: Model,
+  tuning: Tuning,
+  display: Display,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.submodel({
+    slotId: model.tuningListbox.id,
+    model: model.tuningListbox,
+    view: TuningListbox.view,
+    viewInputs: {
+      ariaLabel: 'Tuning',
+      anchor: { placement: 'bottom-start', gap: 4, padding: 8 },
+      items: TUNINGS,
+      itemToValue: item => item.id,
+      maybeSelectedValue: Option.some(model.tuningId),
+      isDisabled: !display.isListening,
+      itemToConfig: (item, { isSelected }) => ({
+        className: `flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left hover:bg-blue-300/10 data-[active]:bg-blue-300/10 ${isSelected ? 'bg-white/10 font-semibold' : ''}`,
+        content: h.span([h.Class('min-w-0 grow truncate')], [item.label]),
+      }),
+      buttonContent: h.span(
+        [h.Class('flex w-full items-center gap-2')],
+        [
+          h.span([h.Class('min-w-0 grow truncate')], [tuning.label]),
+          Icon.caretDown('h-3 w-3 shrink-0 opacity-70'),
+        ],
+      ),
+      buttonAttributes: childAttributes([
+        h.Class(
+          `flex w-full items-center gap-2 rounded-md bg-oxford-dark px-4 py-2 text-left ${display.isListening ? 'cursor-pointer text-blue-100/80' : 'text-blue-100/5'}`,
+        ),
+      ]),
+      itemsAttributes: childAttributes([
+        h.Class(
+          'z-20 max-h-64 w-(--button-width) overflow-y-auto rounded bg-oxford pt-1 pb-3 text-[15px] text-blue-100/90 shadow-lg shadow-oxford-950',
+        ),
+      ]),
+      backdropAttributes: childAttributes([h.Class('fixed inset-0 z-10')]),
+    },
+    toParentMessage: message => Message.GotTuningListboxMessage({ message }),
+  })
+
+const settingsMenuView = (
+  model: Model,
+  display: Display,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.submodel({
+    slotId: model.a4Popover.id,
+    model: model.a4Popover,
+    view: Popover.view,
+    viewInputs: {
+      ariaLabel: 'Tuner settings',
+      anchor: { placement: 'bottom-end', gap: 4, padding: 8 },
+      isDisabled: !display.isListening,
+      toView: ({ button, panel, backdrop, isVisible }) =>
+        h.div(
+          [h.Class('relative')],
+          [
+            h.button(
+              [
+                ...button,
+                h.Class(
+                  `grid h-[38px] place-items-center rounded-md bg-oxford-dark px-3 py-2 leading-none ${display.isListening ? 'cursor-pointer text-blue-100/80' : 'text-blue-100/10'}`,
+                ),
+              ],
+              [Icon.dotsThreeVertical('h-4 w-4')],
+            ),
+            ...(isVisible
+              ? [
+                  h.div([...backdrop, h.Class('fixed inset-0 z-10')]),
+                  h.div(
+                    [
+                      ...panel,
+                      h.Class(
+                        'z-20 w-56 rounded-md bg-oxford px-4 pt-3 pb-4 text-blue-100/90 shadow-lg shadow-oxford-950',
+                      ),
+                    ],
+                    [a4FieldView(model, h)],
+                  ),
+                ]
+              : []),
+          ],
+        ),
+    },
+    toParentMessage: message => Message.GotA4PopoverMessage({ message }),
+  })
+
+const a4FieldView = (model: Model, h: HtmlBuilder<Message>): Html =>
+  Input.view(
+    {
+      id: 'a4-input',
+      type: 'number',
+      value: model.a4Input,
+      isInvalid: Option.isNone(parseA4(model.a4Input)),
+      onInput: value => Message.UpdatedA4Input({ value }),
+      toView: attributes =>
+        h.div(
+          [h.Class('grid grid-cols-[auto_1fr] items-center gap-2 text-[13px]')],
+          [
+            h.label(
+              [...attributes.label, h.Class('whitespace-nowrap')],
+              ['A4 (Hz)'],
+            ),
+            h.input([
+              ...attributes.input,
+              h.Min(`${A4_MIN}`),
+              h.Max(`${A4_MAX}`),
+              h.Step('1'),
+              h.Class(
+                'h-8 w-full rounded-md border border-blue-100/20 bg-blue-300/5 px-3 py-1 text-[15px] tabular-nums data-[invalid]:border-red-400',
+              ),
+            ]),
+          ],
+        ),
+    },
+    h,
   )
 
 const powerButtonView = (display: Display, h: HtmlBuilder<Message>): Html =>

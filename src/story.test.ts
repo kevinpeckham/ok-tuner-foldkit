@@ -1,18 +1,22 @@
 import { Array, Option } from 'effect'
-import { given, message, model, story } from 'foldkit/story'
+import { Command, given, message, model, story } from 'foldkit/story'
 import { modifyFields } from 'foldkit/struct'
 import { describe, expect, test } from 'vitest'
+
+import { Listbox, Popover } from '@foldkit/ui'
 
 import {
   Message,
   type Model,
+  SavePreferences,
   TunerState,
   init,
   managedResources,
   update,
 } from './main'
+import { DEFAULT_PREFERENCES } from './preferences'
 
-const offModel: Model = init().model
+const offModel: Model = init({ preferences: DEFAULT_PREFERENCES }).model
 
 const withTuner = (tuner: TunerState): Model =>
   modifyFields(offModel, { tuner: () => tuner })
@@ -59,12 +63,20 @@ const readingOf = (next: Model): Option.Option<number> =>
   })
 
 describe('init', () => {
-  test('starts off, on standard tuning, with A4 at 440', () => {
-    expect(offModel).toEqual({
-      tuner: TunerState.Off(),
-      tuningId: 'standard',
-      a4: 440,
-    })
+  test('with default preferences it starts off, on standard tuning, with A4 at 440', () => {
+    expect(offModel.tuner).toEqual(TunerState.Off())
+    expect(offModel.tuningId).toBe('standard')
+    expect(offModel.a4).toBe(440)
+    expect(offModel.a4Input).toBe('440')
+  })
+
+  test('it takes the tuning and A4 from the flags', () => {
+    const fromFlags = init({ preferences: { tuningId: 'bass', a4: 442 } }).model
+
+    expect(fromFlags.tuningId).toBe('bass')
+    expect(fromFlags.a4).toBe(442)
+    expect(fromFlags.a4Input).toBe('442')
+    expect(fromFlags.tuner).toEqual(TunerState.Off())
   })
 })
 
@@ -367,5 +379,149 @@ describe('microphone requirement', () => {
         new Error('The device is busy'),
       ),
     ).toEqual(Message.FailedAcquireMicrophone({ reason: 'The device is busy' }))
+  })
+})
+
+describe('A4', () => {
+  test('a valid A4 applies and saves', () => {
+    story(
+      update,
+      given(listening()),
+      message(Message.UpdatedA4Input({ value: '442' })),
+      model(next => {
+        expect(next.a4).toBe(442)
+        expect(next.a4Input).toBe('442')
+      }),
+      Command.expectExact(SavePreferences({ tuningId: 'standard', a4: 442 })),
+      Command.resolve(SavePreferences, Message.SucceededSavePreferences()),
+    )
+  })
+
+  test.each(['', 'abc', '399', '481'])(
+    'junk in the A4 field ("%s") changes nothing and saves nothing',
+    value => {
+      story(
+        update,
+        given(listening()),
+        message(Message.UpdatedA4Input({ value })),
+        Command.expectNone(),
+        model(next => {
+          expect(next.a4).toBe(440)
+          expect(next.a4Input).toBe(value)
+        }),
+      )
+    },
+  )
+
+  test('a valid value after junk still applies, and saves once', () => {
+    story(
+      update,
+      given(listening()),
+      message(Message.UpdatedA4Input({ value: '4' })),
+      Command.expectNone(),
+      message(Message.UpdatedA4Input({ value: '44' })),
+      Command.expectNone(),
+      message(Message.UpdatedA4Input({ value: '442' })),
+      Command.expectExact(SavePreferences({ tuningId: 'standard', a4: 442 })),
+      Command.resolve(SavePreferences, Message.SucceededSavePreferences()),
+      model(next => {
+        expect(next.a4).toBe(442)
+      }),
+    )
+  })
+
+  test('retyping the applied value does not save again', () => {
+    story(
+      update,
+      given(listening()),
+      message(Message.UpdatedA4Input({ value: '440' })),
+      Command.expectNone(),
+      model(next => {
+        expect(next.a4).toBe(440)
+      }),
+    )
+  })
+
+  test('a failed save leaves the choice in place for the page', () => {
+    story(
+      update,
+      given(listening()),
+      message(Message.UpdatedA4Input({ value: '442' })),
+      Command.resolve(SavePreferences, Message.FailedSavePreferences()),
+      model(next => {
+        expect(next.a4).toBe(442)
+        expect(next.a4Input).toBe('442')
+      }),
+    )
+  })
+
+  test('closing the A4 menu puts the applied value back in the field', () => {
+    const opened = Popover.open(offModel.a4Popover)
+    const withOpenMenu = modifyFields(listening(), {
+      a4Popover: () => opened.model,
+      a4Input: () => '39',
+    })
+
+    story(
+      update,
+      given(withOpenMenu),
+      message(
+        Message.GotA4PopoverMessage({
+          message: Popover.Message.RequestedClose(),
+        }),
+      ),
+      model(next => {
+        expect(next.a4Input).toBe('440')
+        expect(next.a4).toBe(440)
+      }),
+      Command.resolveAll(
+        [Popover.FocusButton, Popover.Message.CompletedFocusButton()],
+        [Popover.UnlockScroll, Popover.Message.CompletedUnlockScroll()],
+        [Popover.RestoreInert, Popover.Message.CompletedRestoreInert()],
+      ),
+    )
+  })
+})
+
+describe('tuning', () => {
+  test('choosing a tuning from the picker applies it and saves', () => {
+    story(
+      update,
+      given(listening()),
+      message(
+        Message.GotTuningListboxMessage({
+          message: Listbox.Message.SelectedItem({ item: 'bass' }),
+        }),
+      ),
+      model(next => {
+        expect(next.tuningId).toBe('bass')
+      }),
+      Command.expectHas(SavePreferences({ tuningId: 'bass', a4: 440 })),
+      Command.resolveAll(
+        [SavePreferences, Message.SucceededSavePreferences()],
+        [Listbox.FocusButton, Listbox.Message.CompletedFocusButton()],
+        [Listbox.UnlockScroll, Listbox.Message.CompletedUnlockScroll()],
+        [Listbox.RestoreInert, Listbox.Message.CompletedRestoreInert()],
+      ),
+    )
+  })
+
+  test('the chosen tuning is saved with the current A4', () => {
+    story(
+      update,
+      given(modifyFields(listening(), { a4: () => 442 })),
+      message(
+        Message.GotTuningListboxMessage({
+          message: Listbox.Message.SelectedItem({ item: 'drop-d' }),
+        }),
+      ),
+      Command.expectHas(SavePreferences({ tuningId: 'drop-d', a4: 442 })),
+      Command.resolveAll(
+        [SavePreferences, Message.SucceededSavePreferences()],
+        [Listbox.FocusButton, Listbox.Message.CompletedFocusButton()],
+        [Listbox.UnlockScroll, Listbox.Message.CompletedUnlockScroll()],
+        [Listbox.RestoreInert, Listbox.Message.CompletedRestoreInert()],
+      ),
+    )
   })
 })

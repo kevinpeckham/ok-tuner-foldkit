@@ -1,8 +1,10 @@
 import { Runtime } from 'foldkit'
 
 import {
+  Flags,
   Message,
   Model,
+  flags,
   init,
   managedResources,
   subscriptions,
@@ -14,6 +16,7 @@ const DEVTOOLS_MAX_ENTRIES = 500
 
 const application = Runtime.makeApplication({
   Model,
+  Flags,
   init,
   update,
   view,
@@ -26,4 +29,4 @@ const application = Runtime.makeApplication({
   },
 })
 
-Runtime.run(application)
+Runtime.run(application, { flags })

@@ -1,26 +1,41 @@
 import { Option } from 'effect'
 import {
+  Command,
   ManagedResource,
+  Mount,
   all,
   click,
   expect,
   expectAll,
   given,
+  label,
   nth,
   role,
   scene,
   selector,
   text,
   title,
+  type,
 } from 'foldkit/scene'
 import { modifyFields } from 'foldkit/struct'
 import { describe, test } from 'vitest'
 
-import { type Model, TunerState, init, managedResources, update } from './main'
+import { Popover } from '@foldkit/ui'
+
+import {
+  Message,
+  type Model,
+  SavePreferences,
+  TunerState,
+  init,
+  managedResources,
+  update,
+} from './main'
 import { REFUSED } from './microphone'
+import { DEFAULT_PREFERENCES } from './preferences'
 import { view } from './view'
 
-const offModel: Model = init().model
+const offModel: Model = init({ preferences: DEFAULT_PREFERENCES }).model
 
 type ListeningFields = Partial<Omit<typeof TunerState.Listening.Type, '_tag'>>
 
@@ -228,6 +243,89 @@ describe('how-to', () => {
       given(offModel),
       expect(role('heading', { name: 'How to use the tuner' })).toExist(),
       expect(text(/Nothing is recorded\./)).toExist(),
+    )
+  })
+})
+
+describe('controls', () => {
+  const tuningPicker = role('button', { name: 'Tuning' })
+  const settingsMenu = role('button', { name: 'Tuner settings' })
+
+  test('the picker and the A4 menu are disabled while the tuner is off', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      expect(tuningPicker).toBeDisabled(),
+      expect(settingsMenu).toBeDisabled(),
+    )
+  })
+
+  test('the picker and the A4 menu are enabled while listening', () => {
+    scene(
+      { update, view },
+      given(listening()),
+      expect(tuningPicker).toBeEnabled(),
+      expect(settingsMenu).toBeEnabled(),
+    )
+  })
+
+  test('the picker shows the chosen tuning', () => {
+    scene(
+      { update, view },
+      given(withTuning(listening(), 'drop-d')),
+      expect(tuningPicker).toContainText('Guitar - Drop D'),
+    )
+  })
+
+  test('the strings follow the chosen tuning', () => {
+    scene(
+      { update, view },
+      given(withTuning(listening(), 'bass')),
+      expectAll(strings).toHaveCount(4),
+      expect(nth(strings, 0)).toHaveText('E'),
+      expect(nth(strings, 3)).toHaveText('G'),
+    )
+  })
+
+  const withOpenSettings = (model: Model): Model =>
+    modifyFields(model, {
+      a4Popover: () => Popover.open(model.a4Popover).model,
+    })
+
+  const acknowledgeSettingsMenu = [
+    Mount.resolve(
+      Popover.AnchorPopover,
+      Popover.Message.CompletedAnchorPopover(),
+    ),
+    Mount.resolve(
+      Popover.PortalPopoverBackdrop,
+      Popover.Message.CompletedPortalPopoverBackdrop(),
+    ),
+  ]
+
+  test('typing a valid A4 in the settings menu applies and saves it', () => {
+    scene(
+      { update, view },
+      given(withOpenSettings(listening())),
+      ...acknowledgeSettingsMenu,
+      expect(label('A4 (Hz)')).toHaveValue('440'),
+      type(label('A4 (Hz)'), '442'),
+      Command.expectExact(SavePreferences({ tuningId: 'standard', a4: 442 })),
+      Command.resolve(SavePreferences, Message.SucceededSavePreferences()),
+      expect(label('A4 (Hz)')).toHaveValue('442'),
+      expect(title('82.78 Hz')).toHaveText('E'),
+    )
+  })
+
+  test('junk in the A4 field is marked invalid and changes nothing', () => {
+    scene(
+      { update, view },
+      given(withOpenSettings(listening())),
+      ...acknowledgeSettingsMenu,
+      type(label('A4 (Hz)'), '39'),
+      Command.expectNone(),
+      expect(label('A4 (Hz)')).toHaveAttr('aria-invalid', 'true'),
+      expect(title('82.41 Hz')).toHaveText('E'),
     )
   })
 })
