@@ -8,6 +8,7 @@ Items are grouped by kind, not ranked.
 
 - **Microphone lost mid-session.** If the microphone is unplugged or permission is revoked while the tuner is on, the tuner stays on and silent. Detect it (the track's `ended` event, the permission's `change` event) and show a clear notice with what to do next.
 - **Waiting for permission.** While the browser's permission prompt is open the button says "Starting…" and nothing else. Say that the browser is waiting for microphone permission when that is the case, and consider a way to cancel.
+- **A missing or busy microphone.** The alert shows the browser's own words ("Requested device not found") and the failure is reported to Sentry as a fault. Once Sentry shows how often each happens, give `NotFoundError` and `NotReadableError` their own kinds and plain sentences, and decide whether to keep reporting them.
 - **Start listening when the pointer enters the page.** Agreed during design, to follow the basics.
 - **Pitch detection off the main thread.** `detectPitch` runs on the main thread every 50 ms. Weigh an `AudioWorklet` or a Web Worker: the gain is a steadier needle on slow phones, the cost is a second build entry and message passing. Measure on a slow phone before deciding.
 - **Power button while starting.** It keeps the pointer cursor and hover colour although it is disabled.
@@ -33,6 +34,18 @@ Items are grouped by kind, not ranked.
 - Two scene tests assert only that something is absent ("no reading", "chromatic shows no strings"). Add a positive assertion to each.
 - Untested: the readings stream itself, analyser wiring failing after the audio context exists, and a rejected `resume()` or `close()`.
 - Picker and menu click-through is covered by a headless-browser check, not by the suite.
+- **The "no IP address" promise is pinned only through the options.** Assert on what is sent: the SDK marks each report so Sentry does not infer the address (`infer_ip: never`).
+- **`ReportProblem`'s own catch-all is not pinned.** No test makes `reportMicrophoneProblem` throw and checks the Command still completes.
+- **The blocked-storage start-up test for Sentry guards nothing today.** This SDK version does not touch storage when it starts with our options, so the test passes with or without the `try`. It is there for a later version.
+- **Nothing automated checks that stack frames resolve.** The proof is a test report from production, by hand (see `FINDINGS.md`, "Source maps resolved one line off").
+
+## Error reporting
+
+- **Errors thrown by browser extensions are reported.** Sentry has an inbound filter for the common ones (a project setting), and the SDK has `allowUrls` to accept only errors from our own files. Wait until Sentry shows the noise is real.
+- **Production reached at a deployment's own address is tagged `preview`.** `ok-tuner-git-main-…` and the hashed address serve the production build, but the hostname is all the browser has. A build-time value would fix it, which means `src` reading the environment: decide that first (see `AGENTS.md`).
+- **Bundle size.** Sentry took the script from 398 kB to 491 kB (159 kB compressed). The Vite plugin's `bundleSizeOptimizations` may trim it. Measure before and after.
+- **`vite.config.ts` is not type-checked or linted.** Typecheck and lint cover `src` only.
+- **The Sentry plan is out of date.** `docs/superpowers/plans/2026-11-24-sentry.md` still describes sending a message and plugin 11.14.0. The design's "Changes during the build" is right. Mark the plan as superseded or correct it.
 
 ## Page content
 
