@@ -1,1 +1,20 @@
 @import 'tailwindcss';
+
+@theme {
+  --color-oxford-50: oklch(0.95 0.048 259.91);
+  --color-oxford-100: oklch(0.9 0.048 259.91);
+  --color-oxford-200: oklch(0.8 0.048 259.91);
+  --color-oxford-300: oklch(0.7 0.048 259.91);
+  --color-oxford-400: oklch(0.6 0.048 259.91);
+  --color-oxford-500: oklch(0.5 0.048 259.91);
+  --color-oxford-600: oklch(0.4 0.048 259.91);
+  --color-oxford-700: oklch(0.3 0.048 259.91);
+  --color-oxford-800: oklch(0.2 0.048 259.91);
+  --color-oxford-850: oklch(0.15 0.048 259.91);
+  --color-oxford-900: oklch(0.1 0.048 259.91);
+  --color-oxford-950: oklch(0.05 0.048 259.91);
+  --color-oxford: oklch(0.252 0.048 259.91);
+  --color-oxford-dark: oklch(0.115 0.048 259.91);
+  --color-accent: #ebf92f;
+  --color-maximum-yellow: oklch(0.9406 0.201 113.9);
+}
