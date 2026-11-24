@@ -8,8 +8,11 @@ import * as Sentry from '@sentry/browser'
 export const SENTRY_DSN =
   'https://5e7e796c6a347b35e4a1402e17517f4a@o4505247956860928.ingest.us.sentry.io/4512488535621632'
 
-// NOTE: Vercel serves the production deployment at both of these.
+// NOTE: Vercel serves the production deployment at all of these. The bare
+// domain redirects to www, and is listed in case that is ever turned round.
 const PRODUCTION_HOSTNAMES: ReadonlyArray<string> = [
+  'www.oktuner.com',
+  'oktuner.com',
   'ok-tuner.vercel.app',
   'ok-tuner-lightning-jar.vercel.app',
 ]
@@ -17,8 +20,8 @@ const VERCEL_HOSTNAME_SUFFIX = '.vercel.app'
 
 // NOTE: the repository is public, so a copy of this app can run anywhere: a
 // fork on someone else's Vercel account, or `bun run dev` on any machine.
-// Reports are sent only from the hosts below. A custom domain must be added
-// here, or the site on it will report nothing.
+// Reports are sent only from the hosts above and below. A new domain must be
+// added to PRODUCTION_HOSTNAMES, or the site on it will report nothing.
 const OUR_PREVIEW_PREFIX = 'ok-tuner-'
 const OUR_PREVIEW_SUFFIX = '-lightning-jar.vercel.app'
 const OUR_DEVELOPMENT_HOSTNAME = 'ok-tuner.bench.lj.dev'

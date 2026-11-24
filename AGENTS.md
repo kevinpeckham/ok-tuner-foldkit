@@ -23,7 +23,11 @@ The port and the allowed host are passed by the launcher, so `vite.config.ts` ca
 
 ### What this app is
 
-OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `src/lib/components/Tuner.svelte`), written to learn Foldkit. The design is `docs/superpowers/specs/2026-11-24-tuner-design.md`.
+OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `src/lib/components/Tuner.svelte`), written to learn Foldkit. The design is `docs/superpowers/specs/2026-11-24-tuner-design.md`. It is live at <https://www.oktuner.com/>.
+
+### Findings
+
+[`FINDINGS.md`](./FINDINGS.md) is the log of gotchas and of why things are the way they are. Read the section for the area you are about to change. Add an entry whenever a tool, a pattern or our own process does something that was not obvious, in the same change that met it. A rule to follow goes in this file, not there.
 
 ### Environment and secrets
 
@@ -39,7 +43,8 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 - Errors only: a visit where nothing goes wrong sends nothing. Do not add tracing, replay, the session integration, or anything that identifies a visitor.
 - `@sentry/vite-plugin` must stay at 11.16.0 or later. Earlier versions bundle an upload tool (`sentry` 0.49.0) that, on Vite 8, adds a line to the uploaded copy of the bundle, so every stack frame in Sentry resolves one line off ([sentry-javascript #26658](https://github.com/getsentry/sentry-javascript/issues/26658)). After changing its version, send a test report from production and check that its frames name files under `src/`.
 - A caught failure worth reporting is reported by a Command returned from `update` (`ReportProblem`), not from inside the code that caught it. A person's own choice (refusing the microphone, blocking storage) is not reported.
-- Reports are sent only from our own hosts (`reportsFrom` in `src/sentry.ts`): production, our Vercel previews, and the dev server at `ok-tuner.bench.lj.dev`, tagged `development`. `localhost` reports nothing. A custom domain must be added there. Resolve test issues you create.
+- Reports are sent only from our own hosts (`reportsFrom` in `src/sentry.ts`): production (`www.oktuner.com` and the two Vercel addresses), our Vercel previews, and the dev server at `ok-tuner.bench.lj.dev`, tagged `development`. `localhost` reports nothing. Resolve test issues you create.
+- A new domain reports nothing until it is added to `PRODUCTION_HOSTNAMES` in `src/sentry.ts`. If the Sentry project's Allowed Domains is set, add it there too, or Sentry drops what the site sends.
 
 ### Conventions that differ from Foldkit's defaults
 

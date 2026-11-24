@@ -2,7 +2,7 @@
 
 A chromatic instrument tuner that runs in the browser, built with [Foldkit](https://foldkit.dev). It listens to the microphone, shows the nearest note and how many cents sharp or flat it is, and lights the nearest string of the chosen tuning. Nothing is recorded.
 
-It is a port of the tuner in Stem Shovel, written to learn Foldkit.
+It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <https://www.oktuner.com/>.
 
 ## How it is built
 
@@ -13,7 +13,7 @@ It is a port of the tuner in Stem Shovel, written to learn Foldkit.
 - `src/sentry.ts`: everything that touches the Sentry SDK. `src/instrument.ts` starts it before the rest of the app loads.
 - `src/view.ts`: the page and the tuner's face.
 
-The design and the implementation plan are in `docs/superpowers/`.
+The design and the implementation plan are in `docs/superpowers/`. Gotchas, and the reasons behind the less obvious choices, are in [`FINDINGS.md`](./FINDINGS.md). Planned work is in [`docs/backlog.md`](./docs/backlog.md).
 
 ## Commands
 
@@ -51,7 +51,7 @@ Errors go to [Sentry](https://sentry.io), and nothing else does:
 
 A visit where nothing goes wrong sends nothing. There is no session tracking, tracing or replay, no cookies or user identifiers, and the SDK is told not to record the IP address. Refusing the microphone and blocking site storage are choices, not errors, and are not reported.
 
-An error report does carry the page URL, the browser's locale and timezone, and the clicks and console lines just before it. Sentry also adds an approximate location (country, region, city) on its side.
+An error report does carry the page URL, the browser's locale and timezone, and the clicks and console lines just before it. Sentry also adds an approximate location (country, sometimes a city) on its side, although it stores no IP address.
 
 Reports are sent only from the project's own hosts, listed in `src/sentry.ts`, and tagged `production`, `preview` or `development` by hostname. A fork, or `bun run dev` on `localhost`, reports nothing.
 
