@@ -163,7 +163,8 @@ Recorded on 2026-11-24, after the build and its review. Where this section and t
 - **Reports are sent only from our own hosts:** the two production hostnames, `ok-tuner-…-lightning-jar.vercel.app` previews, and `ok-tuner.bench.lj.dev`. Everywhere else, including `localhost` and any other `*.vercel.app`, the SDK is disabled. The repository is public, and without this a fork or a stranger's dev server would report into this project. A custom domain must be added to the list in `src/sentry.ts`.
 - **The microphone report is an error, not a message.** With `attachStacktrace` on, Sentry titled a message by the function that sent it. `ReportProblem` now sends an `Error` named `Microphone failed: <error name>` whose text is the browser's message, cut to 300 characters. The tag and the grouping by error name are unchanged.
 - **Crash reports keep nested data.** The SDK's default flattens anything deeper than three levels, which lost the current reading; the depth is raised to 10.
-- **Approximate location.** With every switch off, Sentry stores no IP address but still attaches a country, region and city to each report on its side.
+- **Approximate location.** With every switch off, Sentry stores no IP address but still attaches a country, region and city to each report on its side. Kevin switched "Prevent Storing of IP Addresses" on later the same day; a report sent afterwards still carried a country and city.
+- **The custom domain.** `www.oktuner.com` was connected to production after the build, and reported nothing until it and `oktuner.com` were added to the production hostnames.
 
 ## Left to the builder
 

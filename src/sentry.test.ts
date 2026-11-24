@@ -90,6 +90,8 @@ afterEach(async () => {
 
 describe('environmentOf', () => {
   test.each([
+    ['www.oktuner.com', 'production'],
+    ['oktuner.com', 'production'],
     ['ok-tuner.vercel.app', 'production'],
     ['ok-tuner-lightning-jar.vercel.app', 'production'],
     ['ok-tuner-git-feat-x-lightning-jar.vercel.app', 'preview'],
@@ -104,6 +106,8 @@ describe('environmentOf', () => {
 
 describe('reportsFrom', () => {
   test.each([
+    ['www.oktuner.com', true],
+    ['oktuner.com', true],
     ['ok-tuner.vercel.app', true],
     ['ok-tuner-lightning-jar.vercel.app', true],
     ['ok-tuner-git-feat-x-lightning-jar.vercel.app', true],
@@ -112,6 +116,8 @@ describe('reportsFrom', () => {
     ['localhost', false],
     ['ok-tuner-fork-someone.vercel.app', false],
     ['someone-lightning-jar.vercel.app', false],
+    ['staging.oktuner.com', false],
+    ['www.oktuner.com.example.org', false],
     ['', false],
   ])('%s reports: %s', (hostname, reports) => {
     expect(reportsFrom(hostname)).toBe(reports)
