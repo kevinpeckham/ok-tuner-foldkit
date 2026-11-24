@@ -18,6 +18,9 @@ const VERCEL_HOSTNAME_SUFFIX = '.vercel.app'
 // The integration that tells Sentry about every visit, crash or not.
 const SESSION_INTEGRATION_NAME = 'BrowserSession'
 
+/** A browser's error text is sent to Sentry cut to this many characters. */
+export const DETAIL_LIMIT = 300
+
 // ENVIRONMENT
 
 export type SentryEnvironment = 'production' | 'preview' | 'development'
@@ -81,4 +84,30 @@ export const reportCrash = ({ error, model, message }: Crash): void => {
   Sentry.captureException(error, {
     extra: { model, message: Option.getOrUndefined(message) },
   })
+}
+
+type MicrophoneProblem = Readonly<{ name: string; detail: string }>
+
+const NO_DETAIL = 'The browser gave no message.'
+
+/** A microphone that failed to open for a reason other than the person's own
+ *  refusal. Sent as an error named after the browser's error, so the issue in
+ *  Sentry is titled by it and carries the stack of this call. Grouped by the
+ *  error's name. */
+export const reportMicrophoneProblem = ({
+  name,
+  detail,
+}: MicrophoneProblem): void => {
+  const text = String.isNonEmpty(detail)
+    ? detail.slice(0, DETAIL_LIMIT)
+    : NO_DETAIL
+
+  Sentry.captureException(
+    Object.assign(new Error(text), { name: `Microphone failed: ${name}` }),
+    {
+      level: 'error',
+      tags: { microphone_error: name },
+      fingerprint: ['microphone', name],
+    },
+  )
 }

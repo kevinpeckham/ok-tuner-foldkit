@@ -8,6 +8,7 @@ import { Listbox, Popover } from '@foldkit/ui'
 import {
   Message,
   type Model,
+  ReportProblem,
   SavePreferences,
   TunerState,
   init,
@@ -169,40 +170,71 @@ describe('microphone', () => {
   test.each([
     ['starting', startingModel],
     ['listening', listening({ needleCents: 12 })],
-  ])('a failure while %s shows its reason', (_name, start) => {
+  ])(
+    'an unexpected failure while %s shows its reason and is reported',
+    (_name, start) => {
+      story(
+        update,
+        given(start),
+        message(
+          Message.FailedAcquireMicrophone({
+            failure: unexpected('No microphone'),
+          }),
+        ),
+        model(next => {
+          expect(next.tuner).toEqual(
+            TunerState.Failed({ failure: unexpected('No microphone') }),
+          )
+        }),
+        Command.expectExact(
+          ReportProblem({ name: 'NotReadableError', detail: 'No microphone' }),
+        ),
+        Command.resolve(ReportProblem, Message.CompletedReportProblem()),
+        model(next => {
+          expect(next.tuner).toEqual(
+            TunerState.Failed({ failure: unexpected('No microphone') }),
+          )
+        }),
+      )
+    },
+  )
+
+  test.each([
+    ['refused', MicrophoneFailure.Refused()],
+    ['unsupported', MicrophoneFailure.Unsupported()],
+  ])('a %s microphone is not reported', (_name, failure) => {
     story(
       update,
-      given(start),
-      message(
-        Message.FailedAcquireMicrophone({
-          failure: unexpected('No microphone'),
-        }),
-      ),
+      given(startingModel),
+      message(Message.FailedAcquireMicrophone({ failure })),
       model(next => {
-        expect(next.tuner).toEqual(
-          TunerState.Failed({ failure: unexpected('No microphone') }),
-        )
+        expect(next.tuner).toEqual(TunerState.Failed({ failure }))
       }),
+      Command.expectNone(),
     )
   })
 
   test.each([
     ['off', offModel],
     ['failed', failedModel],
-  ])('a failure while %s changes nothing', (_name, start) => {
-    story(
-      update,
-      given(start),
-      message(
-        Message.FailedAcquireMicrophone({
-          failure: unexpected('No microphone'),
+  ])(
+    'a failure while %s changes nothing and reports nothing',
+    (_name, start) => {
+      story(
+        update,
+        given(start),
+        message(
+          Message.FailedAcquireMicrophone({
+            failure: unexpected('No microphone'),
+          }),
+        ),
+        model(next => {
+          expect(next).toEqual(start)
         }),
-      ),
-      model(next => {
-        expect(next).toEqual(start)
-      }),
-    )
-  })
+        Command.expectNone(),
+      )
+    },
+  )
 
   test.each([
     ['off', offModel],

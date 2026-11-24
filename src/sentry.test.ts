@@ -1,13 +1,16 @@
-import { Option } from 'effect'
-import { afterEach, describe, expect, test } from 'vitest'
+import { Effect, Option } from 'effect'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import * as Sentry from '@sentry/browser'
 
+import { Message, ReportProblem } from './main'
 import {
+  DETAIL_LIMIT,
   SENTRY_DSN,
   environmentOf,
   initSentry,
   reportCrash,
+  reportMicrophoneProblem,
   sentryOptions,
 } from './sentry'
 
@@ -47,6 +50,11 @@ const startRecording = (): Recording => {
   })
   return { sent, events }
 }
+
+/** A network that refuses everything, as an ad blocker or no connection does. */
+const unreachableTransport =
+  (send: Transport['send']): TransportFactory =>
+  () => ({ send, flush: () => Promise.resolve(true) })
 
 // STORAGE
 
@@ -189,5 +197,89 @@ describe('reportCrash', () => {
     expect(sent).toHaveLength(1)
     expect(events).toHaveLength(1)
     expect(events[0]?.extra?.['message']).toBeUndefined()
+  })
+})
+
+describe('reportMicrophoneProblem', () => {
+  test('a microphone problem is sent as an error titled with the error name and grouped by it', async () => {
+    const { sent, events } = startRecording()
+
+    reportMicrophoneProblem({
+      name: 'NotReadableError',
+      detail: 'The device is busy',
+    })
+    await Sentry.flush()
+
+    expect(sent).toHaveLength(1)
+    expect(events).toHaveLength(1)
+    const exception = events[0]?.exception?.values?.[0]
+    expect(exception?.type).toBe('Microphone failed: NotReadableError')
+    expect(exception?.value).toBe('The device is busy')
+    expect(exception?.stacktrace?.frames?.length).toBeGreaterThan(0)
+    expect(events[0]?.level).toBe('error')
+    expect(events[0]?.tags?.['microphone_error']).toBe('NotReadableError')
+    expect(events[0]?.fingerprint).toEqual(['microphone', 'NotReadableError'])
+    expect(events[0]?.user).toBeUndefined()
+  })
+
+  test('a problem with nothing to say is still titled', async () => {
+    const { events } = startRecording()
+
+    reportMicrophoneProblem({ name: 'Unknown', detail: '' })
+    await Sentry.flush()
+
+    const exception = events[0]?.exception?.values?.[0]
+    expect(exception?.type).toBe('Microphone failed: Unknown')
+    expect(exception?.value).toBe('The browser gave no message.')
+  })
+
+  test('a long detail is cut to 300 characters', async () => {
+    const { events } = startRecording()
+
+    reportMicrophoneProblem({ name: 'Error', detail: 'x'.repeat(1000) })
+    await Sentry.flush()
+
+    expect(DETAIL_LIMIT).toBe(300)
+    expect(events[0]?.exception?.values?.[0]?.value).toBe('x'.repeat(300))
+  })
+
+  test('reporting when Sentry is not running does nothing and does not throw', async () => {
+    const { sent } = startRecording()
+    await Sentry.close()
+
+    expect(() =>
+      reportMicrophoneProblem({ name: 'Error', detail: 'late' }),
+    ).not.toThrow()
+    expect(sent).toHaveLength(0)
+  })
+})
+
+describe('ReportProblem', () => {
+  const problem = { name: 'NotReadableError', detail: 'The device is busy' }
+
+  test('sends the problem and completes', async () => {
+    const { events } = startRecording()
+
+    const result = await Effect.runPromise(ReportProblem(problem).effect)
+    await Sentry.flush()
+
+    expect(result).toEqual(Message.CompletedReportProblem())
+    expect(events).toHaveLength(1)
+    expect(events[0]?.exception?.values?.[0]?.type).toBe(
+      'Microphone failed: NotReadableError',
+    )
+  })
+
+  // NOTE: Vitest fails the run on any unhandled rejection, so a rejected send
+  // that escaped the SDK would fail this test without an assertion for it.
+  test('completes when Sentry cannot be reached', async () => {
+    const send = vi.fn(() => Promise.reject(new Error('blocked')))
+    initSentry({ transport: unreachableTransport(send) })
+
+    const result = await Effect.runPromise(ReportProblem(problem).effect)
+    await Sentry.flush()
+
+    expect(result).toEqual(Message.CompletedReportProblem())
+    expect(send).toHaveBeenCalledTimes(1)
   })
 })

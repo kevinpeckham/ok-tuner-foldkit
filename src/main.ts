@@ -33,6 +33,7 @@ import {
   preferencesFromJson,
   preferencesToJson,
 } from './preferences'
+import { reportMicrophoneProblem } from './sentry'
 import { type Tuning } from './tuning'
 
 // CONSTANT
@@ -85,6 +86,7 @@ export const Message = defineMessageUnion({
   UpdatedA4Input: { value: Schema.String },
   SucceededSavePreferences: {},
   FailedSavePreferences: {},
+  CompletedReportProblem: {},
 })
 export type Message = typeof Message.Type
 
@@ -140,6 +142,16 @@ export const SavePreferences = Command.define('SavePreferences', {
     ),
 })
 
+export const ReportProblem = Command.define('ReportProblem', {
+  args: { name: Schema.String, detail: Schema.String },
+  messages: [Message.CompletedReportProblem],
+  execute: problem =>
+    Effect.sync(() => reportMicrophoneProblem(problem)).pipe(
+      Effect.as(Message.CompletedReportProblem()),
+      Effect.catchCause(() => Effect.succeed(Message.CompletedReportProblem())),
+    ),
+})
+
 // UPDATE
 
 const freshListening = (): TunerState =>
@@ -191,6 +203,20 @@ const hearNothing = (listening: Listening, level: number): TunerState => {
 
 const withTuner = (model: Model, tuner: TunerState): Model =>
   modifyFields(model, { tuner: () => tuner })
+
+// A refusal and an unsupported browser are the person's own situation. Anything
+// else means something is broken, so it is reported.
+const failWith = (
+  model: Model,
+  failure: MicrophoneFailure,
+): Update.Return<Model, Message> => ({
+  model: withTuner(model, TunerState.Failed({ failure })),
+  commands: MicrophoneFailure.match(failure, {
+    Refused: () => [],
+    Unsupported: () => [],
+    Unexpected: ({ name, detail }) => [ReportProblem({ name, detail })],
+  }),
+})
 
 const foldTuningListboxOutMessage = Listbox.OutMessage.match<
   Update.Step<Model, Message>
@@ -271,17 +297,13 @@ export const update = (model: Model, message: Message) =>
       ),
     }),
 
-    FailedAcquireMicrophone: ({ failure }) => ({
-      model: withTuner(
-        model,
-        TunerState.match(model.tuner, {
-          Off: off => off,
-          Starting: () => TunerState.Failed({ failure }),
-          Listening: () => TunerState.Failed({ failure }),
-          Failed: failed => failed,
-        }),
-      ),
-    }),
+    FailedAcquireMicrophone: ({ failure }) =>
+      TunerState.match(model.tuner, {
+        Off: () => ({ model }),
+        Starting: () => failWith(model, failure),
+        Listening: () => failWith(model, failure),
+        Failed: () => ({ model }),
+      }),
 
     ReleasedMicrophone: () => ({ model }),
 
@@ -310,6 +332,8 @@ export const update = (model: Model, message: Message) =>
     SucceededSavePreferences: () => ({ model }),
 
     FailedSavePreferences: () => ({ model }),
+
+    CompletedReportProblem: () => ({ model }),
   })
 
 // MANAGED RESOURCE
