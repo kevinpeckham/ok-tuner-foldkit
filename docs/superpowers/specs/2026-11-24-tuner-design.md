@@ -63,16 +63,16 @@ Three ways to wire the microphone and the pitch readings were considered.
 
 In `~/projects/stem-shovel` (branch `dev`):
 
-| File | What it holds |
-|---|---|
-| `src/lib/components/Tuner.svelte` | The component: microphone handling, the 50 ms tick, smoothing, and all markup and classes. The layout reference. |
-| `src/lib/audio/pitch.ts` | `detectPitch` (McLeod's method), `noteFromFrequency`, `frequencyOfMidi`, `noteLabel`. Pure. |
-| `src/lib/audio/pitch.test.ts` | Tests on synthesized tones. |
-| `src/lib/constants/tunings.ts` | The nine tunings as MIDI notes; default `standard`. |
-| `src/lib/utils/tunerPreferences.ts` | Saved tuning and A4 in `localStorage`, with validation. |
-| `scripts/user-docs/tuner-page.md` | The how-to copy. |
+| File                                                       | What it holds                                                                                                                                                      |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/lib/components/Tuner.svelte`                          | The component: microphone handling, the 50 ms tick, smoothing, and all markup and classes. The layout reference.                                                   |
+| `src/lib/audio/pitch.ts`                                   | `detectPitch` (McLeod's method), `noteFromFrequency`, `frequencyOfMidi`, `noteLabel`. Pure.                                                                        |
+| `src/lib/audio/pitch.test.ts`                              | Tests on synthesized tones.                                                                                                                                        |
+| `src/lib/constants/tunings.ts`                             | The nine tunings as MIDI notes; default `standard`.                                                                                                                |
+| `src/lib/utils/tunerPreferences.ts`                        | Saved tuning and A4 in `localStorage`, with validation.                                                                                                            |
+| `scripts/user-docs/tuner-page.md`                          | The how-to copy.                                                                                                                                                   |
 | `src/lib/components/ComboBox.svelte`, `ContextMenu.svelte` | The look of the tuning picker and the A4 menu: classes, the caret and the three-dot icon. Reference for appearance only; their behaviour comes from `@foldkit/ui`. |
-| `uno.config.ts` | Colour values (`oxford`, `accent`, `maximumYellow`). |
+| `uno.config.ts`                                            | Colour values (`oxford`, `accent`, `maximumYellow`).                                                                                                               |
 
 ## Design
 
