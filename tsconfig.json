@@ -1,16 +1,49 @@
+// tsconfig.json: how TypeScript checks the code.
+//
+// `bun run typecheck` is `tsc --noEmit`. TypeScript only checks here: it
+// never writes JavaScript. Vite turns the source into JavaScript for the
+// browser, and Vitest does the same for the tests.
+//
+// The file is Foldkit's starter template, unchanged: the one of the same
+// name in `repos/foldkit/packages/create-foldkit-app/templates/base/`.
+// TypeScript reads this file as JSON with comments.
 {
   "compilerOptions": {
+    // The JavaScript version the code is written for.
     "target": "ES2022",
+    // Standard `import` and `export`, left for the bundler to deal with.
     "module": "ESNext",
+    // The built-in types on offer: the ES2022 standard library and the
+    // browser's DOM. There are no Node types, so code under `src` cannot
+    // use `process` (FINDINGS.md, "There are no Node types, so a test cannot
+    // listen for unhandled rejections").
     "lib": ["ES2022", "DOM"],
+    // Resolve imports the way a bundler such as Vite does: relative imports
+    // without a file extension (`./pitch`), and the entry points a package
+    // declares (`foldkit/schema`, `effect/persistence`).
     "moduleResolution": "bundler",
+    // All of TypeScript's strict checks.
     "strict": true,
+    // Reading an element by index gives `T | undefined`, not `T`, because
+    // the index may be out of range. This is the reason for the `?? 0` and
+    // `=== undefined` checks in `src/pitch.ts`.
     "noUncheckedIndexedAccess": true,
+    // Do not type-check the declaration files of dependencies.
     "skipLibCheck": true,
+    // Allows a default import from a package published as CommonJS.
     "esModuleInterop": true,
+    // An optional property may be left out, but may not be set to
+    // `undefined` unless its type says so.
     "exactOptionalPropertyTypes": true,
+    // Every file must make sense compiled on its own, because that is how
+    // Vite compiles: one file at a time, with no knowledge of the others.
+    // TypeScript reports the few constructs that cannot be compiled that
+    // way.
     "isolatedModules": true,
+    // Check only. See the top of the file.
     "noEmit": true
   },
+  // Only `src` is checked. `vite.config.ts` and `vitest.config.ts` are not
+  // (FINDINGS.md, "`vite.config.ts` is not type-checked or linted").
   "include": ["src/**/*"]
 }

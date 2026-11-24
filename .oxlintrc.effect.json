@@ -1,9 +1,35 @@
+// .oxlintrc.effect.json: the second lint pass, Effect's own rules.
+//
+// The last command of `bun run lint` reads this file:
+// `oxlint --config .oxlintrc.effect.json --deny-warnings src`. The first
+// pass (`.oxlintrc.json`) holds the general rules and Foldkit's.
+//
+// These rules come from `@effect/tsgo`, the Effect team's tooling for
+// TypeScript. They are type-aware: they read the types of the code, not
+// only its text, so they can catch mistakes in how Effects are built and
+// combined.
+//
+// Every rule here is set to "warn", and the command passes
+// `--deny-warnings`, which makes any warning fail the lint. One thing that
+// follows for this project is in FINDINGS.md, "The Effect lint refuses
+// `unknown` in an error channel": it is why `src/microphone.ts` has a typed
+// `MicrophoneError`.
+//
+// The file is Foldkit's starter template, unchanged: the one of the same
+// name in `repos/foldkit/packages/create-foldkit-app/templates/base/`.
 {
+  // Lets an editor complete and check the keys of this file.
   "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
+  // Effect's `correctness` preset: it switches type-aware linting on, loads
+  // the `effecttsgo` plugin, and sets its own list of rules to "warn".
   "extends": ["./node_modules/@effect/tsgo/oxlint-presets/correctness.json"],
+  // oxlint's built-in `correctness` category is off, as in the first pass,
+  // so this pass runs the Effect rules and nothing else.
   "categories": {
     "correctness": "off"
   },
+  // Rules set on top of the preset: sixteen more at "warn", and one that the
+  // preset switches on (`unstable-api-usage`) switched off.
   "rules": {
     "effecttsgo/catch-unfailable-effect": "warn",
     "effecttsgo/effect-fn-iife": "warn",

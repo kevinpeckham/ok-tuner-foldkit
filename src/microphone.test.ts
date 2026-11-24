@@ -1,3 +1,19 @@
+// MICROPHONE TESTS: the code that touches the browser's audio
+//
+// Exercises `src/microphone.ts`: sorting whatever went wrong into a kind of
+// failure, the sentence shown for each kind, and the two Effects that open
+// and close the microphone. In the app those two Effects are the `acquire`
+// and `release` of a Foldkit managed resource, and the runtime runs them. A
+// Story never reaches them, and a Scene stands in for them with its
+// `ManagedResource` steps, so this is the file that runs them.
+//
+// These are plain Vitest tests. No microphone is involved: the tests replace
+// `navigator` and `AudioContext` with small fakes (`vi.stubGlobal`) that
+// succeed, refuse or throw on demand. What a fake cannot show is a real
+// device. That is checked outside this suite, in headless Chrome with a WAV
+// file played as the microphone (FINDINGS.md, "Checking the real page in
+// headless Chrome, with and without a microphone").
+
 import { Cause, Effect, Exit, Option } from 'effect'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
@@ -12,10 +28,19 @@ import {
   releaseMicrophone,
 } from './microphone'
 
+// Take the fakes away after each test.
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+// Effect idioms used below. `Effect.runPromise(effect)` runs an Effect and
+// returns a Promise that rejects if the Effect fails.
+// `Effect.runPromiseExit(effect)` never rejects for a failure. It resolves
+// with an `Exit`, which holds either the success value or the `Cause` of
+// the failure. `failureOf` reads a failed Exit: `Cause.findErrorOption`
+// gives the typed error if there is one (an `Option`, Effect's type for a
+// value that may be missing), and `microphoneFailure` classifies it. A
+// success gives `Option.none()`.
 const failureOf = (
   exit: Exit.Exit<unknown, unknown>,
 ): Option.Option<MicrophoneFailure> =>
@@ -25,9 +50,17 @@ const failureOf = (
       Option.map(Cause.findErrorOption(cause), microphoneFailure),
   })
 
+// An `Error` with a chosen `name`, as a browser throws. The name is what
+// says which problem it was: `NotAllowedError`, `NotReadableError`.
 const named = (name: string, text: string): Error =>
   Object.assign(new Error(text), { name })
 
+// The classifier. Foldkit hands a managed resource's `onAcquireError`
+// whatever was thrown, typed `unknown`, so this function must cope with
+// anything. It reads a browser's error by its `name` and `message`
+// properties, which is why an error-like object that is not an `Error` is
+// classified too (FINDINGS.md, "The Effect lint refuses `unknown` in an
+// error channel").
 describe('microphoneFailure', () => {
   test('a MicrophoneError gives the failure it carries', () => {
     expect(
@@ -54,6 +87,8 @@ describe('microphoneFailure', () => {
     )
   })
 
+  // Not everything thrown is an `Error`. Anything with no usable name is
+  // "Unknown", and anything with no message has an empty detail.
   test.each([
     ['a string', '???'],
     ['undefined', undefined],
@@ -79,6 +114,9 @@ describe('microphoneFailure', () => {
   })
 })
 
+// What the person is told, for each kind of failure. The view puts this
+// sentence in the alert. The wording of the two fixed sentences is pinned
+// here, so `scene.test.ts` can compare against the constant.
 describe('failureSentence', () => {
   test('a refusal says how to allow the microphone', () => {
     expect(failureSentence(MicrophoneFailure.Refused())).toBe(REFUSED)
@@ -103,6 +141,8 @@ describe('failureSentence', () => {
     ).toBe('The device is busy')
   })
 
+  // The cut to 300 characters applies only to what is sent to Sentry (see
+  // `sentry.test.ts`). The page shows the browser's message as it came.
   test('a very long message is shown whole', () => {
     const long = 'x'.repeat(1000)
 
@@ -122,7 +162,11 @@ describe('failureSentence', () => {
   })
 })
 
+// Opening the microphone, run against fake browsers. `acquireMicrophone` is
+// an Effect: nothing happens until `runPromiseExit` or `runPromise` runs it.
 describe('acquireMicrophone', () => {
+  // A browser with no `navigator.mediaDevices` cannot open a microphone at
+  // all. That is `Unsupported`, which the app shows and does not report.
   test('without getUserMedia, acquiring fails as unsupported', async () => {
     vi.stubGlobal('navigator', {})
 
@@ -133,6 +177,8 @@ describe('acquireMicrophone', () => {
     )
   })
 
+  // The person said no at the browser's prompt: `getUserMedia` rejects with
+  // an error named `NotAllowedError`.
   test('a refused permission fails as refused', async () => {
     vi.stubGlobal('navigator', {
       mediaDevices: {
@@ -148,6 +194,12 @@ describe('acquireMicrophone', () => {
     expect(failureOf(exit)).toEqual(Option.some(MicrophoneFailure.Refused()))
   })
 
+  // The clean-up test. Here the stream opens and the next step throws. The
+  // failure must be reported as a fault, and the stream's tracks must be
+  // stopped first, so a failed start never leaves the microphone on. This is
+  // one of the tests that was proved by breaking the code and watching it
+  // fail (FINDINGS.md, "A test can pass because the thing it guards never
+  // runs in a test").
   test('when the audio context cannot be created, the opened stream is stopped', async () => {
     const stop = vi.fn()
     vi.stubGlobal('navigator', {
@@ -174,6 +226,11 @@ describe('acquireMicrophone', () => {
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
+  // The successful path, step by step. The stream is asked for with echo
+  // cancellation, noise suppression and automatic gain all off. The fake
+  // audio context starts out `suspended`, to show that it is resumed (iOS
+  // can hand back a suspended one). The analyser is given a window of 4096
+  // samples and no smoothing, and the stream is connected to it.
   test('opens the stream with processing off and wires it to an analyser', async () => {
     const connect = vi.fn()
     const resume = vi.fn(() => Promise.resolve())
@@ -209,7 +266,15 @@ describe('acquireMicrophone', () => {
   })
 })
 
+// Closing the microphone: every track of the stream is stopped and the audio
+// context is closed. In the app the runtime runs this when the Model stops
+// wanting the microphone.
 describe('releaseMicrophone', () => {
+  // The handle to release is made by really acquiring one against fakes.
+  // `Effect.sync(...)` wraps the stubbing as an Effect, and
+  // `.pipe(Effect.andThen(acquireMicrophone))` runs the acquisition after
+  // it, so one `runPromise` does both. `.pipe(f)` passes the value on its
+  // left to `f`.
   test('stops every track and closes the context', async () => {
     const stopFirst = vi.fn()
     const stopSecond = vi.fn()
