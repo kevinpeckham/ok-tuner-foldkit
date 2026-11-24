@@ -32,7 +32,7 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 
 ### Deliberately later
 
-Each of these is planned, not forgotten. Do not add one as a side effect of other work:
+The full list is [`docs/backlog.md`](./docs/backlog.md). Everything there is planned, not forgotten. Do not add an item as a side effect of other work. The ones most likely to be added by accident:
 
 - Sentry.
 - Varlock and 1Password, when the first secret is needed (most likely with Sentry).
