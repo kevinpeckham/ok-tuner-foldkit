@@ -3,6 +3,10 @@
     "foldkit-devtools": {
       "command": "npx",
       "args": ["-y", "@foldkit/devtools-mcp"]
+    },
+    "varlock-docs-mcp": {
+      "type": "http",
+      "url": "https://docs.mcp.varlock.dev/mcp"
     }
   }
 }
