@@ -1,6 +1,49 @@
+/*
+ * styles.css: the app's one stylesheet, and all of its Tailwind configuration.
+ *
+ * Where this file sits. `index.html` links it, and the `@tailwindcss/vite`
+ * plugin (see `vite.config.ts`) compiles it. There is no `tailwind.config.js`:
+ * in Tailwind 4 the configuration is written in CSS, and this is it. Foldkit
+ * plays no part here. The classes themselves are written in `src/view.ts`, as
+ * the strings given to `h.Class(...)`.
+ */
+
+/*
+ * Brings in Tailwind: its reset ("Preflight"), its default theme (the spacing
+ * scale, and colours such as `slate`, `blue`, `green` and `red`, which view.ts
+ * uses) and its utility classes. Tailwind scans the project's files as plain
+ * text for class names and generates only the classes it finds. That is why
+ * view.ts always writes a class name out in full.
+ */
 @import 'tailwindcss';
 
+/*
+ * `@theme` defines design tokens. Each line is a CSS custom property, and the
+ * start of its name decides what it creates. A property named `--color-NAME`
+ * adds a colour called NAME to every colour utility: `--color-oxford-900` is
+ * what makes `bg-oxford-900` and `from-oxford-900` exist, and `--color-accent`
+ * gives `text-accent` and `border-accent`. An opacity can be added as usual
+ * (`bg-oxford-900/50`), and the value can be read as an ordinary variable,
+ * `var(--color-oxford-900)`.
+ *
+ * Tailwind writes a theme variable into the built stylesheet only when
+ * something uses it, so the shades that view.ts does not use cost nothing.
+ *
+ * Where the colours come from. They are the palette of Stem Shovel, the app
+ * this tuner was ported from (the `colors` in its `uno.config.ts`), so that
+ * the two tuners look the same. The design lists the source under "Source
+ * being ported".
+ */
 @theme {
+  /*
+   * "Oxford" is one dark blue at twelve levels of lightness. The colours are
+   * written as `oklch(lightness chroma hue)`: the chroma (0.048) and the hue
+   * (259.91) never change, and the lightness falls from 0.95 for `oxford-50`
+   * to 0.05 for `oxford-950`. The screen, the chips and the shadows use the
+   * dark end.
+   * `oxford-850` is this project's addition: Stem Shovel's markup uses the
+   * class, but its palette does not define the colour.
+   */
   --color-oxford-50: oklch(0.95 0.048 259.91);
   --color-oxford-100: oklch(0.9 0.048 259.91);
   --color-oxford-200: oklch(0.8 0.048 259.91);
@@ -13,8 +56,22 @@
   --color-oxford-850: oklch(0.15 0.048 259.91);
   --color-oxford-900: oklch(0.1 0.048 259.91);
   --color-oxford-950: oklch(0.05 0.048 259.91);
+  /*
+   * A name with no number gives classes with no number. `oxford` (`bg-oxford`,
+   * `text-oxford`) is the ground of the open tuning list and the settings
+   * menu, and the colour of the badge's lettering. `oxford-dark`
+   * (`bg-oxford-dark`) is the ground of the page and the face of the two
+   * controls.
+   */
   --color-oxford: oklch(0.252 0.048 259.91);
   --color-oxford-dark: oklch(0.115 0.048 259.91);
+  /*
+   * The two yellows. `accent` lights the string chip nearest to the note
+   * while it is not yet in tune (`border-accent text-accent`).
+   * `maximum-yellow` is the needle marker when off pitch
+   * (`bg-maximum-yellow`). Both turn green in tune, with Tailwind's own
+   * `green-400` and `green-300`.
+   */
   --color-accent: #ebf92f;
   --color-maximum-yellow: oklch(0.9406 0.201 113.9);
 }

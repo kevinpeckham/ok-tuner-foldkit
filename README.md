@@ -15,6 +15,19 @@ It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <htt
 
 The design and the implementation plan are in `docs/superpowers/`. Gotchas, and the reasons behind the less obvious choices, are in [`FINDINGS.md`](./FINDINGS.md). Planned work is in [`docs/backlog.md`](./docs/backlog.md).
 
+## Reading the code
+
+The source is commented for someone learning Foldkit: each file opens with what it is and where it sits, and each declaration says what it does. A good order:
+
+1. `src/entry.ts`: how the app is handed to the Foldkit runtime.
+2. `src/main.ts`: the Model, the Messages, `update`, Commands, the managed resource and the subscription. Most of Foldkit is here.
+3. `src/view.ts`: how the Model becomes the page, and how the page sends Messages.
+4. `src/story.test.ts` and `src/scene.test.ts`: how `update` and the view are tested.
+5. `src/microphone.ts`, `src/pitch.ts`, `src/tuning.ts`, `src/preferences.ts`, `src/sentry.ts`: the parts Foldkit calls into.
+6. `vite.config.ts`, `index.html`, `.env.schema`: the build.
+
+[`FOLDKIT.md`](./FOLDKIT.md) is Foldkit's own guide to the architecture and its conventions.
+
 ## Commands
 
 ```bash

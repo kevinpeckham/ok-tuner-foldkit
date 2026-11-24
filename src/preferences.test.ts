@@ -1,3 +1,19 @@
+// PREFERENCES TESTS: what is remembered between visits
+//
+// Exercises `src/preferences.ts`: turning the saved JSON into preferences
+// and back, and reading the A4 that a person types. These are pure functions
+// tested with plain Vitest, and nothing here is Foldkit. Nothing here touches
+// storage either: reading and writing `localStorage` is tested in
+// `storage.test.ts`.
+//
+// The rule under test is that reading never fails. Whatever is in storage,
+// the app gets usable preferences, with a default wherever the saved value
+// is missing or damaged.
+
+// `Option` is Effect's type for a value that may be missing. Here
+// `Option.some(json)` is "this text was in storage" and `Option.none()` is
+// "nothing was saved". `parseA4` answers with an Option too: `Some` of the
+// number, or `None` when the text is not a usable A4.
 import { Option } from 'effect'
 import { describe, expect, test } from 'vitest'
 
@@ -10,6 +26,7 @@ import {
 } from './preferences'
 
 describe('preferences', () => {
+  // What is written can be read back unchanged.
   test('a saved pair round-trips', () => {
     const saved = { tuningId: 'drop-d', a4: 442 }
 
@@ -18,6 +35,8 @@ describe('preferences', () => {
     )
   })
 
+  // This key and this exact text are what is already in people's browsers,
+  // so a change to either would lose what they had saved.
   test('the saved form is plain JSON under its own key', () => {
     expect(STORAGE_KEY).toBe('oktuner.tuner')
     expect(preferencesToJson({ tuningId: 'drop-d', a4: 442 })).toBe(
@@ -25,6 +44,7 @@ describe('preferences', () => {
     )
   })
 
+  // A first visit.
   test('nothing saved gives the defaults', () => {
     expect(preferencesFromJson(Option.none())).toEqual({
       tuningId: 'standard',
@@ -33,6 +53,10 @@ describe('preferences', () => {
     expect(DEFAULT_PREFERENCES).toEqual({ tuningId: 'standard', a4: 440 })
   })
 
+  // Each field is checked on its own, so one damaged field does not throw
+  // away the other. The first three rows are text that is not a saved pair
+  // at all. The rest have one bad field (an unknown tuning, an A4 out of
+  // range or of the wrong type, a field missing) and keep the good one.
   test.each([
     ['not json', '{oops', { tuningId: 'standard', a4: 440 }],
     ['a JSON string', '"hi"', { tuningId: 'standard', a4: 440 }],
@@ -63,7 +87,12 @@ describe('preferences', () => {
   })
 })
 
+// Reading the text of the A4 field. `update` uses the answer to decide
+// whether to apply and save what was typed, and the view uses it to mark the
+// field invalid.
 describe('parseA4', () => {
+  // 400 and 480 are the ends of the range, and both are allowed. A value
+  // with a decimal part is accepted as well.
   test.each([
     ['442', 442],
     ['400', 400],
@@ -73,6 +102,9 @@ describe('parseA4', () => {
     expect(parseA4(text)).toEqual(Option.some(expected))
   })
 
+  // Empty and blank text, words, and numbers just outside the range. "NaN"
+  // and "Infinity" are on the list because JavaScript's `Number()` turns
+  // both into numbers, and neither is a pitch.
   test.each(['', ' ', 'abc', '399', '481', 'NaN', 'Infinity'])(
     'rejects "%s"',
     junk => {

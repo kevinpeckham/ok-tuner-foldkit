@@ -1,11 +1,38 @@
+// .oxlintrc.json: the first of the two lint passes.
+//
+// `bun run lint` runs three commands in a row (see `package.json`):
+//   1. `oxlint src` reads this file. oxlint is the linter. This pass holds a
+//      few general rules and all of Foldkit's own.
+//   2. `effect-tsgo patch ...` prepares oxlint for Effect's type-aware rules.
+//   3. `oxlint --config .oxlintrc.effect.json --deny-warnings src` runs those
+//      rules. See that file.
+//
+// The file is Foldkit's starter template, unchanged: the one of the same
+// name in `repos/foldkit/packages/create-foldkit-app/templates/base/`.
+// Comments are allowed here: oxlint and oxfmt both accept them in this file.
 {
+  // Lets an editor complete and check the keys of this file.
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Foldkit's recommended preset. It loads the `foldkit` plugin
+  // (`@foldkit/oxlint-plugin`) and switches its rules on as errors. They
+  // enforce by machine many of the conventions FOLDKIT.md states in words,
+  // for example `foldkit/no-noop-message`, `foldkit/no-empty-commands-array`,
+  // `foldkit/no-switch-on-message-tag` and
+  // `foldkit/no-spread-in-modify-fields`.
+  // The preset switches most of them off again in test files. Each rule is
+  // described in the Foldkit documentation:
+  // `repos/foldkit/packages/website/src/page/toolingLinting.md`.
   "extends": ["./node_modules/@foldkit/oxlint-plugin/recommended.json"],
+  // oxlint's built-in TypeScript rules, two of which are switched on below.
   "plugins": ["typescript"],
+  // oxlint groups its built-in rules into categories. With `correctness`
+  // off, only the preset's rules and the rules named below run in this pass.
   "categories": {
     "correctness": "off"
   },
   "rules": {
+    // An unused variable, argument or caught error is an error, unless its
+    // name starts with an underscore.
     "no-unused-vars": [
       "error",
       {
@@ -15,16 +42,28 @@
         "destructuredArrayIgnorePattern": "^_"
       }
     ],
+    // No `any`.
     "typescript/no-explicit-any": "error",
+    // No type assertions at all: `value as Type` is an error everywhere.
+    // That covers FOLDKIT.md's "Never cast Schema values with `as Type`" and
+    // goes further. It is why the code uses type guards such as
+    // `Predicate.isString` where a cast would be shorter.
     "typescript/consistent-type-assertions": [
       "error",
       { "assertionStyle": "never" }
     ],
+    // The names inside one import's braces must be in order, with capitals
+    // before lower case: `import { Option, Schema, pipe } from 'effect'`.
+    // `ignoreDeclarationSort` leaves the order of the import statements
+    // themselves alone; the formatter (oxfmt) arranges those.
     "sort-imports": [
       "error",
       { "ignoreDeclarationSort": true, "ignoreCase": false }
     ]
   },
+  // Paths the linter skips. `repos/` is the vendored Foldkit source. The two
+  // config files at the root are listed too, so they are never linted
+  // (FINDINGS.md, "`vite.config.ts` is not type-checked or linted").
   "ignorePatterns": [
     "dist/",
     "node_modules/",

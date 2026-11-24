@@ -50,6 +50,7 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 
 - `src/pitch.ts` uses `for` and `while` loops and mutable locals on purpose. Each reading compares millions of samples, so this one module is exempt from the "no loops" rule. Keep the exemption to that file.
 - Commit messages carry no `Co-Authored-By` or other attribution lines.
+- **The code is commented for teaching.** `FOLDKIT.md` says not to add comments that explain code. This project is an example for learning Foldkit, so it does the opposite on purpose (Kevin, 2026-11-24): each file opens with what it is and where it sits, and each declaration says what it does, with the most words spent on what is particular to Foldkit. When you change code, change the comments beside it in the same commit: a comment that no longer matches the code teaches the wrong thing. Check any statement about Foldkit against `FOLDKIT.md` or the source in `repos/foldkit/` before writing it. `// NOTE:` keeps its meaning: behaviour that would mislead a careful reader.
 
 ### Deliberately later
 
