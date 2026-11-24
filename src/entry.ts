@@ -1,6 +1,9 @@
 import { Runtime } from 'foldkit'
 
-import { Message, Model, init, update, view } from './main'
+import { Message, Model, init, update } from './main'
+import { view } from './view'
+
+const DEVTOOLS_MAX_ENTRIES = 500
 
 const application = Runtime.makeApplication({
   Model,
@@ -10,6 +13,7 @@ const application = Runtime.makeApplication({
   container: document.getElementById('root'),
   devTools: {
     Message,
+    maxEntries: DEVTOOLS_MAX_ENTRIES,
   },
 })
 

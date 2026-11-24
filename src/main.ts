@@ -1,95 +1,169 @@
-import { Schema } from 'effect'
-import { Runtime, type Update } from 'foldkit'
-import { Document, HtmlBuilder } from 'foldkit/html'
+import { Option, Schema } from 'effect'
+import { type Runtime, type Update } from 'foldkit'
 import { defineMessageUnion } from 'foldkit/message'
+import { defineTaggedUnion } from 'foldkit/schema'
 import { modifyFields } from 'foldkit/struct'
 
-import { Button } from '@foldkit/ui'
+import { Pitch, noteFromFrequency } from './pitch'
+import { DEFAULT_PREFERENCES } from './preferences'
+
+// CONSTANT
+
+export const IN_TUNE_CENTS = 5
+const NEEDLE_SNAP_CENTS = 30
+const NEEDLE_SETTLE_RATIO = 0.35
+const QUIET_TICKS_HELD = 12
 
 // MODEL
 
-export const Model = Schema.Struct({ count: Schema.Number })
+export const TunerState = defineTaggedUnion({
+  Off: {},
+  Starting: {},
+  Listening: {
+    level: Schema.Number,
+    maybeReading: Schema.Option(Pitch),
+    needleCents: Schema.Number,
+    quietTicks: Schema.Number,
+  },
+  Failed: { reason: Schema.String },
+})
+export type TunerState = typeof TunerState.Type
+
+type Listening = typeof TunerState.Listening.Type
+
+export const Model = Schema.Struct({
+  tuner: TunerState,
+  tuningId: Schema.String,
+  a4: Schema.Number,
+})
 export type Model = typeof Model.Type
 
 // MESSAGE
 
 export const Message = defineMessageUnion({
-  ClickedDecrement: {},
-  ClickedIncrement: {},
-  ClickedReset: {},
+  ClickedPower: {},
+  SucceededAcquireMicrophone: {},
+  FailedAcquireMicrophone: { reason: Schema.String },
+  ReleasedMicrophone: {},
+  MeasuredInput: { level: Schema.Number, maybePitch: Schema.Option(Pitch) },
 })
 export type Message = typeof Message.Type
-
-// UPDATE
-
-export const update = (model: Model, message: Message) =>
-  Message.match<Update.Return<Model, Message>>(message, {
-    ClickedDecrement: () => ({
-      model: modifyFields(model, { count: count => count - 1 }),
-    }),
-    ClickedIncrement: () => ({
-      model: modifyFields(model, { count: count => count + 1 }),
-    }),
-    ClickedReset: () => ({ model: modifyFields(model, { count: () => 0 }) }),
-  })
 
 // INIT
 
 export const init: Runtime.ApplicationInit<Model, Message> = () => ({
-  model: { count: 0 },
+  model: {
+    tuner: TunerState.Off(),
+    tuningId: DEFAULT_PREFERENCES.tuningId,
+    a4: DEFAULT_PREFERENCES.a4,
+  },
 })
 
-// VIEW
+// UPDATE
 
-export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: `Counter: ${model.count}`,
-  body: h.div(
-    [
-      h.Class(
-        'min-h-screen bg-white flex flex-col items-center justify-center gap-6 p-6',
-      ),
-    ],
-    [
-      h.p(
-        [h.Class('text-6xl font-bold text-gray-800')],
-        [model.count.toString()],
-      ),
-      h.div(
-        [h.Class('flex flex-wrap justify-center gap-4')],
-        [
-          Button.view(
-            {
-              onClick: Message.ClickedDecrement(),
-              toView: attributes =>
-                h.button([...attributes.button, h.Class(buttonStyle)], ['-']),
-            },
-            h,
-          ),
-          Button.view(
-            {
-              onClick: Message.ClickedReset(),
-              toView: attributes =>
-                h.button(
-                  [...attributes.button, h.Class(buttonStyle)],
-                  ['Reset'],
-                ),
-            },
-            h,
-          ),
-          Button.view(
-            {
-              onClick: Message.ClickedIncrement(),
-              toView: attributes =>
-                h.button([...attributes.button, h.Class(buttonStyle)], ['+']),
-            },
-            h,
-          ),
-        ],
-      ),
-    ],
-  ),
-})
+const freshListening = (): TunerState =>
+  TunerState.Listening({
+    level: 0,
+    maybeReading: Option.none(),
+    needleCents: 0,
+    quietTicks: 0,
+  })
 
-// STYLE
+const moveNeedle = (needleCents: number, cents: number): number =>
+  Math.abs(cents - needleCents) > NEEDLE_SNAP_CENTS
+    ? cents
+    : needleCents + (cents - needleCents) * NEEDLE_SETTLE_RATIO
 
-const buttonStyle = 'bg-black text-white hover:bg-gray-700 px-4 py-2 transition'
+const hearPitch = (
+  listening: Listening,
+  a4: number,
+  level: number,
+  pitch: Pitch,
+): TunerState =>
+  TunerState.Listening({
+    level,
+    maybeReading: Option.some(pitch),
+    needleCents: moveNeedle(
+      listening.needleCents,
+      noteFromFrequency(pitch.frequency, a4).cents,
+    ),
+    quietTicks: 0,
+  })
+
+const hearNothing = (listening: Listening, level: number): TunerState => {
+  const quietTicks = listening.quietTicks + 1
+
+  return quietTicks > QUIET_TICKS_HELD
+    ? TunerState.Listening({
+        level,
+        maybeReading: Option.none(),
+        needleCents: 0,
+        quietTicks,
+      })
+    : TunerState.Listening({
+        level,
+        maybeReading: listening.maybeReading,
+        needleCents: listening.needleCents,
+        quietTicks,
+      })
+}
+
+const withTuner = (model: Model, tuner: TunerState): Model =>
+  modifyFields(model, { tuner: () => tuner })
+
+export const update = (model: Model, message: Message) =>
+  Message.match<Update.Return<Model, Message>>(message, {
+    ClickedPower: () => ({
+      model: withTuner(
+        model,
+        TunerState.match(model.tuner, {
+          Off: () => TunerState.Starting(),
+          Starting: starting => starting,
+          Listening: () => TunerState.Off(),
+          Failed: () => TunerState.Starting(),
+        }),
+      ),
+    }),
+
+    SucceededAcquireMicrophone: () => ({
+      model: withTuner(
+        model,
+        TunerState.match(model.tuner, {
+          Off: off => off,
+          Starting: freshListening,
+          Listening: listening => listening,
+          Failed: failed => failed,
+        }),
+      ),
+    }),
+
+    FailedAcquireMicrophone: ({ reason }) => ({
+      model: withTuner(
+        model,
+        TunerState.match(model.tuner, {
+          Off: off => off,
+          Starting: () => TunerState.Failed({ reason }),
+          Listening: () => TunerState.Failed({ reason }),
+          Failed: failed => failed,
+        }),
+      ),
+    }),
+
+    ReleasedMicrophone: () => ({ model }),
+
+    MeasuredInput: ({ level, maybePitch }) => ({
+      model: withTuner(
+        model,
+        TunerState.match(model.tuner, {
+          Off: off => off,
+          Starting: starting => starting,
+          Listening: listening =>
+            Option.match(maybePitch, {
+              onNone: () => hearNothing(listening, level),
+              onSome: pitch => hearPitch(listening, model.a4, level, pitch),
+            }),
+          Failed: failed => failed,
+        }),
+      ),
+    }),
+  })
