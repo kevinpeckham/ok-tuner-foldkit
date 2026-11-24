@@ -55,7 +55,6 @@ Items are grouped by kind, not ranked.
 - **Ad-free and tracker-free, in the copy.** Add a line to the page saying so.
 - **A custom crash screen** in place of Foldkit's default, which is written for developers.
 - **A microphone error whose message is only spaces** shows an empty alert. Fall back to the plain sentence.
-- **Favicon.** There is none, so every load logs one 404.
 - **Font.** The system font is fine for now; may be revisited.
 
 > Wording is to be settled when this work starts. Sentry reports errors to a third party, and although no IP address is stored, Sentry attaches an approximate location (country, region, city) to each report, so plain "tracker-free" may claim too much. Kevin's suggestion (2026-11-24): "ad-free, ad-tracker-free" may be the more precise claim.
