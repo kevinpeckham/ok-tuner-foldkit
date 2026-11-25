@@ -42,3 +42,21 @@ export const LIGHTNING_JAR_URL = 'https://www.lightningjar.com'
 
 /** The app whose tuner this is a port of. */
 export const STEM_SHOVEL_URL = 'https://www.stemshovel.com'
+
+// The address the site lives at. It is written into every page as that
+// page's canonical address, into the link-preview tags, and into
+// sitemap.xml and robots.txt (src/site.test.ts holds those two files to
+// it). A page says this address whatever host it was served from, so a copy
+// of the site at one of Vercel's own addresses points back to the original.
+/** The live site's origin, with no trailing slash. */
+export const SITE_ORIGIN = 'https://www.oktuner.com'
+
+/** The site's name, as link previews show it. */
+export const SITE_NAME = 'OK Tuner'
+
+// The picture a shared link shows: a screenshot of the home page, 1200 by
+// 630 pixels, the size link previews expect. It is a file in public/, made
+// by `bun run og:image` (scripts/og-image.ts), not by the build. A preview
+// needs the whole address, not a path.
+/** The address of the link-preview picture. */
+export const OG_IMAGE_URL = `${SITE_ORIGIN}/og-image.png`

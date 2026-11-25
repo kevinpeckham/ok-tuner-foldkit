@@ -8,6 +8,21 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### The site is public, and only at one address (2026-11-25, going public)
+
+- **What changed.** The `noindex` tag left the pages, each page gained a canonical address, a description and Open Graph tags, and `robots.txt` and `sitemap.xml` were added.
+- **Only `www.oktuner.com` is indexed.** The same build answers at Vercel's own addresses. `vercel.json` adds `X-Robots-Tag: noindex` when the host is not the live one (a `missing` condition on the host), and every page's canonical address names the live site whatever host served it.
+- **The 404 page keeps `noindex`** and has no canonical address. That is also how the build tells it apart: `renderDocument` is given the rendered page, not the request, so it reads the route back from the page's canonical address, and a page without one is the not-found page.
+- **The description is not in the view.** Foldkit's `Document` carries the title and the canonical address, and the runtime keeps both in step as the page changes. It has no field for a description, so `pageDescription` sits beside `pageTitle` and the build writes the tag. It does not change when the page changes inside the app, which only matters to a crawler, and a crawler loads each address fresh.
+- **Where.** `canonicalOf` and `pageDescription` in `src/view.ts`; `pageHead` in `src/entry.server.ts`; `vercel.json`; `public/robots.txt`, `public/sitemap.xml`; `src/site.test.ts`.
+
+### The link-preview picture is taken by a script, not by the build (2026-11-25, going public)
+
+- **Why.** Kevin asked for a screenshot of the home page, taken with Browserless. A build cannot photograph the site it is about to become, and a build that depended on another service's answer could fail for reasons that have nothing to do with the code. So `bun run og:image` takes the picture of the live home page and the file is committed.
+- **What it costs.** The picture goes stale when the look changes: retake it after the new look is deployed.
+- **Details.** 1200 by 630 pixels. The page is taller than that, so the browser drew a scrollbar down the right edge, which the request hides with a style added for the photograph only. The key is `BROWSERLESS_API_KEY`, optional in `.env.schema` because no build needs it, and the script never prints the request's address, which holds the key.
+- **Where.** `scripts/og-image.ts`; `OG_IMAGE_URL` in `src/site.ts`.
+
 ### Visits are counted, on the live site only (2026-11-25, analytics)
 
 - **Why.** Kevin asked for Vercel Web Analytics, with a Privacy page that says so. Until now the site sent nothing on a visit where nothing went wrong, and the README said so. It now sends one page view per page.
@@ -227,6 +242,12 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Testing
 
+### Files that are not code can still be held to the code (2026-11-25, going public)
+
+- **What happens.** `sitemap.xml`, `robots.txt` and `vercel.json` are not TypeScript, so nothing checks them when a page is added or an address changes.
+- **What to do.** Vite imports a file as text with `?raw` and a JSON file as data, and Vitest does the same. `src/site.test.ts` reads all three: the sitemap must list exactly `pagePaths`, `robots.txt` must name the sitemap, and the policy's `connect-src` must be the origin of the Sentry DSN.
+- **Where.** `src/site.test.ts`.
+
 ### The server entry is tested by rendering with a build id of its own (2026-11-25, prerender)
 
 - **What happens.** `Server.renderToString` refuses to render a page that a browser could take over unless it knows the build id, which the Vite plugin compiles in during a real build. A Vitest run has none, so `renderPage` itself fails there with `MissingBuildId`.
@@ -439,6 +460,22 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **What happens.** `.oxlintrc.json`, `.oxlintrc.effect.json` and `tsconfig.json` have `//` comments. oxlint 1.85.0, `tsc` 7 and oxfmt all accept them, and the lint rules were probed afterwards and still fire. A tool that reads these files as strict JSON would not; an editor without the oxc extension may underline them.
 
 ## Vercel and domains
+
+### The Content Security Policy: what the app needed, and how it was tried (2026-11-25, going public)
+
+- **The policy.** Scripts and stylesheets from the site only, requests to the site and to Sentry's address for this project, no plugins, no framing. Vercel's analytics script and its requests are on the site's own address, so they need no allowance.
+- **The one allowance.** `style-src 'self'` alone broke the page: the needle's position and Foldkit's components are set with `style` attributes, which count as inline style. `style-src-attr 'unsafe-inline'` allows those attributes and still refuses an inline `<style>` block. Nothing needed `unsafe-eval`.
+- **How it was tried.** The headers live in `vercel.json`, so neither the dev server nor Vite's preview sends them. A small static server that reads the headers from `vercel.json` served the built pages, and a browser script ran the tuner, opened the tuning list and the settings menu, and visited every page, listening for `securitypolicyviolation`. The stricter rule gave violations; the final one gave none.
+- **Not tried before merging:** a report to Sentry under the policy, because only the live hosts report. Checked after.
+- **Previews.** Vercel's own toolbar on a preview loads from another origin and is refused by the policy. Accepted.
+- **Where.** `headers` in `vercel.json`; `src/site.test.ts`.
+
+### Vercel's analytics script ignores automated browsers (2026-11-25, analytics)
+
+- **Symptom.** After Web Analytics went live, a headless browser loaded the script and no page view was sent.
+- **Cause.** The script checks `navigator.webdriver` and looks for "Headless" in the user agent, and sends nothing if either is set. Read in the script the site serves.
+- **What it means.** Smoke tests and most bots do not inflate the counts. To see a page view in a test, the browser has to present as an ordinary one: an ordinary user agent, and Chrome started with `--disable-blink-features=AutomationControlled`. That does count as a visit.
+- **What a page view's request holds:** the page's address, the referrer, and the versions of the script and the package. The location and the device are worked out by Vercel from the request itself.
 
 ### Vercel Web Analytics is two switches (2026-11-25, Vercel)
 

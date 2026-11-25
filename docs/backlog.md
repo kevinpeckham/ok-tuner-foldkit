@@ -83,9 +83,3 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 - **Font.** The system font is fine for now; may be revisited.
 
 > Wording is to be settled when this work starts. Sentry reports errors to a third party, and although no IP address is stored, Sentry attaches an approximate location (country, region, city) to each report, so plain "tracker-free" may claim too much. Kevin's suggestion (2026-11-24): "ad-free, ad-tracker-free" may be the more precise claim.
-
-## Going public
-
-- **Make the page crawlable.** Remove `noindex` from `vercel.json` and from `DOCUMENT_HEAD` in `src/entry.server.ts`. (The 404 page can keep it: add it back for that page alone.) The pages are already prerendered, so crawlers get content without running JavaScript. Give each page a canonical address while there.
-- **Open Graph:** title, description and a share image.
-- **Content Security Policy** and the other security headers, in `vercel.json`. The one third-party origin to allow is Sentry's ingest host, `https://o4505247956860928.ingest.us.sentry.io`, so the policy can be strict.
