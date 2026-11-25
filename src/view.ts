@@ -128,8 +128,8 @@ import { Button, Input, Meter, Popover } from '@foldkit/ui'
 // The four icons. Each is a function from a class name to an inline SVG.
 import * as Icon from './icon'
 // From main.ts: the `Model` this file reads, the `Message` constructors it
-// attaches to elements, `TunerState` (the tagged union for off, starting,
-// listening and failed) and `TuningListbox` (the Listbox bound to our
+// attaches to elements, `TunerState` (the tagged union for booting, off,
+// starting, listening and failed) and `TuningListbox` (the Listbox bound to our
 // `Tuning` type). `IN_TUNE_CENTS` is the tuner's rule for "in tune", kept in
 // main.ts beside its other constants.
 import {
@@ -184,7 +184,7 @@ const NON_BREAKING_SPACE = ' '
 
 // This section is the "derive, do not store" step. `toDisplay` turns the Model
 // into a flat record shaped for drawing, and the view functions read that
-// record, not the Model's tagged union. The case analysis (off, starting,
+// record, not the Model's tagged union. The case analysis (booting, off, starting,
 // listening, failed) then happens in one place and the markup below stays
 // free of it. `Heard` and `Display` are plain TypeScript types. The fields of
 // the Model must be Effect Schemas, but values derived from it need not be
@@ -209,6 +209,7 @@ type Heard = Readonly<{
 // convention (FOLDKIT.md, "Code Style"). `maybeHeard` is None when no note is
 // sounding, and `maybeFailure` is None unless the microphone failed.
 type Display = Readonly<{
+  isBooting: boolean
   isListening: boolean
   isStarting: boolean
   level: number
@@ -220,6 +221,7 @@ type Display = Readonly<{
 // The other states are written as this record with their differences spread
 // over it.
 const quietDisplay: Display = {
+  isBooting: false,
   isListening: false,
   isStarting: false,
   level: 0,
@@ -240,6 +242,8 @@ const quietDisplay: Display = {
 // render with no extra code) and `isInTune`.
 const toDisplay = (model: Model): Display =>
   TunerState.match(model.tuner, {
+    // Drawn like Off, with one difference: the power button is disabled.
+    Booting: () => ({ ...quietDisplay, isBooting: true }),
     Off: () => quietDisplay,
     Starting: () => ({ ...quietDisplay, isStarting: true }),
     Listening: ({ level, maybeReading, needleCents }) => ({
@@ -1246,6 +1250,15 @@ const a4FieldView = (model: Model, h: HtmlBuilder<Message>): Html =>
 // What the app provides: the element, its content, its classes, and the two
 // ARIA states that only the app knows about.
 //
+// Before the app is running the button is drawn disabled and dimmed. The
+// page is prerendered, so this view is also what the build writes into the
+// HTML file, and a browser shows that file before the script has loaded. A
+// press then could do nothing. The tuner's first state is `Booting`, and it
+// moves to `Off` with the first Message the running app sends itself
+// (`TunerState` in src/main.ts), so the button comes alive the moment a
+// press can be heard. On a fast connection that is before the page is first
+// painted, and nobody sees the dimmed state.
+//
 // This is the one place in the file where a click becomes a Message of ours
 // directly. `Message.ClickedPower()` builds the Message value while the view
 // runs. Nothing is sent then. The value is kept with the click handler, and
@@ -1261,8 +1274,9 @@ const powerButtonView = (display: Display, h: HtmlBuilder<Message>): Html =>
         {
           onClick: Message.ClickedPower(),
           // Disabled while starting, when the browser may be asking for the
-          // microphone. A click then sends no Message at all.
-          isDisabled: display.isStarting,
+          // microphone, and before the app is running. A click then sends
+          // no Message at all.
+          isDisabled: display.isStarting || display.isBooting,
           toView: attributes =>
             h.button(
               [
@@ -1274,8 +1288,11 @@ const powerButtonView = (display: Display, h: HtmlBuilder<Message>): Html =>
                 // `aria-busy` says that the button is in the middle of
                 // changing: it is true while the tuner is starting.
                 h.AriaBusy(display.isStarting),
+                // The last part of the class list is the not-yet-running
+                // look: dimmed, and with the ordinary cursor in place of the
+                // pointing hand.
                 h.Class(
-                  `flex cursor-pointer items-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-[15px] shadow hover:bg-slate-900 ${display.isListening ? 'text-blue-100/80' : 'text-blue-100/70'}`,
+                  `flex items-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-[15px] shadow ${display.isListening ? 'text-blue-100/80' : 'text-blue-100/70'} ${display.isBooting ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-900'}`,
                 ),
               ],
               [

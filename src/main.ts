@@ -175,12 +175,20 @@ const READING_INTERVAL = Duration.millis(50)
 //   - a constructor for each variant. `TunerState.Off()` gives
 //     `{ _tag: 'Off' }`, and `TunerState.Failed({ failure })` gives
 //     `{ _tag: 'Failed', failure }`;
-//   - `TunerState.match(value, { Off, Starting, Listening, Failed })`, which
+//   - `TunerState.match(value, { Booting, Off, Starting, Listening, Failed })`, which
 //     calls the handler for the variant the value is. Every variant must have
 //     a handler, so adding a fifth state is a compile error at every `match`
 //     until it is handled.
 //
-// The four states:
+// The five states:
+//   Booting    the page has been drawn but the app is not running yet. The
+//              page is prerendered: the build draws it from the first
+//              Model, and a browser shows that drawing before the script
+//              has loaded. In that time the tuner is a picture of a tuner,
+//              and a press on its button would be lost, so the view draws
+//              the button disabled. Every visit starts here and leaves at
+//              once (FINDINGS.md, "A prerendered page looks ready before it
+//              is")
 //   Off        the tuner is off and the microphone is closed
 //   Starting   the button was pressed, and the permission prompt or the
 //              start of the audio is pending
@@ -189,6 +197,7 @@ const READING_INTERVAL = Duration.millis(50)
 //
 // The transitions. `update` below makes every one of them, and nothing else
 // can:
+//   Booting      --CompletedLoadPreferences-->    Off
 //   Off, Failed  --ClickedPower-->                Starting
 //   Starting     --SucceededAcquireMicrophone-->  Listening
 //   Starting     --FailedAcquireMicrophone-->     Failed
@@ -200,6 +209,7 @@ const READING_INTERVAL = Duration.millis(50)
 // so that a state which makes no sense (starting and failed at once) cannot
 // be written at all (FOLDKIT.md, "Code Style").
 export const TunerState = defineTaggedUnion({
+  Booting: {},
   Off: {},
   Starting: {},
   Listening: {
@@ -362,13 +372,16 @@ const a4ToInput = (a4: number): string => `${a4}`
 // `urlToAppRoute` turns the address into the first route, so someone who
 // opens `/how-to` directly starts on that page.
 //
-// The first Model is the same for everyone: the tuner Off, and the default
-// tuning and A4. It has to be. `init` runs twice for each page: once in the
+// The first Model is the same for everyone: the tuner not yet running, and
+// the default tuning and A4. It has to be. `init` runs twice for each page: once in the
 // build, which draws the page into an HTML file (src/entry.server.ts), and
 // once in the browser, which takes that HTML over. The two must build the
 // same Model, or the browser would find a page that does not match what it
 // was about to draw. The build has no visitor and no localStorage, so
 // nothing a visitor saved can be in the first Model.
+//
+// For the same reason the tuner starts as `Booting` and not `Off`: in the
+// build's drawing nothing works yet.
 //
 // What a returning visitor saved is read straight afterwards, by the one
 // Command returned here. The runtime runs Commands in the browser only, once
@@ -392,7 +405,7 @@ const a4ToInput = (a4: number): string => `${a4}`
 export const init: Runtime.RoutingApplicationInit<Model, Message> = url => ({
   model: {
     route: urlToAppRoute(url),
-    tuner: TunerState.Off(),
+    tuner: TunerState.Booting(),
     tuningId: DEFAULT_PREFERENCES.tuningId,
     a4: DEFAULT_PREFERENCES.a4,
     a4Input: a4ToInput(DEFAULT_PREFERENCES.a4),
@@ -880,6 +893,9 @@ export const update = (model: Model, message: Message) =>
       model: withTuner(
         model,
         TunerState.match(model.tuner, {
+          // Not running yet. The view disables the button in this state,
+          // so no click should arrive, and one that did changes nothing.
+          Booting: booting => booting,
           Off: () => TunerState.Starting(),
           // Already starting, so a second click changes nothing. The view
           // also disables the button in this state.
@@ -900,6 +916,7 @@ export const update = (model: Model, message: Message) =>
       model: withTuner(
         model,
         TunerState.match(model.tuner, {
+          Booting: booting => booting,
           Off: off => off,
           // The handler is `freshListening` itself, which takes no notice
           // of the value it is passed.
@@ -918,6 +935,7 @@ export const update = (model: Model, message: Message) =>
     // TunerState, because two of them may carry a Command.
     FailedAcquireMicrophone: ({ failure }) =>
       TunerState.match(model.tuner, {
+        Booting: () => ({ model }),
         Off: () => ({ model }),
         Starting: () => failWith(model, failure),
         Listening: () => failWith(model, failure),
@@ -939,6 +957,7 @@ export const update = (model: Model, message: Message) =>
       model: withTuner(
         model,
         TunerState.match(model.tuner, {
+          Booting: booting => booting,
           Off: off => off,
           Starting: starting => starting,
           Listening: listening =>
@@ -966,8 +985,23 @@ export const update = (model: Model, message: Message) =>
     // is set from the same number so that the field and the value agree.
     // With nothing saved the Command answers with the defaults, and this
     // writes the same values again.
+    //
+    // This Message is also how the app learns that it is running. A Command
+    // only runs in the browser, after the runtime has taken the page over,
+    // so its result cannot arrive before the page works. The tuner leaves
+    // `Booting` for `Off` here, and the On / Off button comes alive. Any
+    // other state is left as it is: the Message arrives once, at start-up,
+    // but the match has to answer for every state.
     CompletedLoadPreferences: ({ preferences }) => ({
       model: modifyFields(model, {
+        tuner: tuner =>
+          TunerState.match(tuner, {
+            Booting: () => TunerState.Off(),
+            Off: off => off,
+            Starting: starting => starting,
+            Listening: listening => listening,
+            Failed: failed => failed,
+          }),
         tuningId: () => preferences.tuningId,
         a4: () => preferences.a4,
         a4Input: () => a4ToInput(preferences.a4),
@@ -1069,6 +1103,7 @@ export const managedResources = ManagedResource.make<Model, Message>()(
       // src/story.test.ts checks this by calling the function directly.
       modelToMaybeRequirements: model =>
         TunerState.match(model.tuner, {
+          Booting: () => Option.none(),
           Off: () => Option.none(),
           Starting: () => Option.some(null),
           Listening: () => Option.some(null),

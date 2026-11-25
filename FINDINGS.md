@@ -14,11 +14,19 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **Why not render per request.** The app has no per-visitor data on a server, so a function on every visit would add cost and nothing else. The host stays static.
 - **How.** Foldkit's Vite plugin bundles the app twice, for the browser and for Node, then calls `renderPage` in `src/entry.server.ts` once for each path in `prerenderPaths` and writes the result. The browser's script calls `Runtime.hydrate`, which takes the HTML over where `Runtime.run` would draw the page from nothing.
 - **What it costs.** Foldkit marks this experimental and says to expect breaking changes: after a Foldkit upgrade, run a build and the browser check before anything else. The app no longer shows Foldkit's Flags. A page added to `src/route.ts` must also be added to `prerenderPaths`, and nothing checks that.
-- **A page that looks ready before it is.** The tuner is drawn before the script has run, and a press on On / Off in that time is lost: nothing replays it. With the script held back three seconds, a click at 0.14 s left the tuner off. Found by the review. In the backlog.
+- **A page that looks ready before it is.** See the next entry.
 - **The script's name changes on every build,** because the build id is random and compiled into it. Every deploy, a docs-only one included, makes a returning visitor download the script again (161 kB compressed). The stylesheet's name is stable.
 - **An old page whose script is gone** shows the tuner with a dead On / Off and no message, where it used to be blank. How often Vercel produces that was not checked.
 - **Tried first.** A throwaway spike on a branch answered the open questions before the design was written: the views needed no change, and the saved preferences did (next entry).
 - **Where.** `src/entry.server.ts`, `src/entry.ts`, the `ssr` option in `vite.config.ts`, `outputDirectory` in `vercel.json`. The design is `docs/superpowers/specs/2026-11-25-prerender-design.md`.
+
+### A prerendered page looks ready before it is (2026-11-25, prerender)
+
+- **Symptom.** The tuner was drawn before the script had run, and a press on On / Off in that time was lost: nothing replays it. With the script held back three seconds, a click at 0.14 s left the tuner off. Found by the review of the prerender branch.
+- **Fix.** The tuner has a fifth state, `Booting`, which is where every visit starts and what the build draws. In it the On / Off button is disabled and dimmed. The first Message the running app sends itself, `CompletedLoadPreferences`, moves the tuner to `Off`, so the button comes alive the moment a press can be heard.
+- **Why a state and not a flag.** The first version was a boolean, `isReady`, beside the tuner's state. FOLDKIT.md ("Code Style") asks for a union variant where a flag would allow combinations that mean nothing, such as "not ready" and "listening".
+- **What a visitor sees.** On a fast connection the button is alive before the page is first painted. On a slow one it is dimmed until the script has loaded.
+- **Where.** `TunerState` and `CompletedLoadPreferences` in `src/main.ts`; `powerButtonView` in `src/view.ts`; "before the app is running" in `src/scene.test.ts`.
 
 ### A prerendered page cannot start from what the browser has saved (2026-11-25, prerender)
 
@@ -394,6 +402,11 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **What happens.** `.oxlintrc.json`, `.oxlintrc.effect.json` and `tsconfig.json` have `//` comments. oxlint 1.85.0, `tsc` 7 and oxfmt all accept them, and the lint rules were probed afterwards and still fire. A tool that reads these files as strict JSON would not; an editor without the oxc extension may underline them.
 
 ## Vercel and domains
+
+### Vercel answers 403 to any address ending in `.map` (2026-11-25, Vercel)
+
+- **What was seen.** On production and on a preview, the address of the script's source map answered 403 with an empty body. So did a made-up `.map` name under `/assets/`, while a made-up `.js` name answered 404.
+- **What it means.** A 403 there says nothing about whether the file exists. The proof that no map is deployed is the build: the Sentry plugin deletes the browser bundle's maps after uploading them, and the Node bundle gets none. What blocks the request was not looked into.
 
 ### The 404 page is written by hand (2026-11-25, Vercel)
 
