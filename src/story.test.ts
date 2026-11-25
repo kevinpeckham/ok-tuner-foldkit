@@ -73,9 +73,8 @@ import { Command, given, message, model, story } from 'foldkit/story'
 // without mutating it, in tests as in `update`.
 import { modifyFields } from 'foldkit/struct'
 // A `Url` is plain data, so a test builds one from a string with
-// `fromString`. `toString` prints one back, which is what a navigation
-// Command is given.
-import { fromString, toString as urlToString } from 'foldkit/url'
+// `fromString`.
+import { fromString } from 'foldkit/url'
 import { describe, expect, test } from 'vitest'
 
 // The two Foldkit UI components the app embeds: the tuning picker is a
@@ -89,6 +88,7 @@ import { Listbox, Popover } from '@foldkit/ui'
 // `ReportProblem` are Command definitions: calling one with arguments builds
 // a Command.
 import {
+  FocusPageHeading,
   LoadExternal,
   Message,
   type Model,
@@ -956,7 +956,9 @@ describe('routing', () => {
       model(next => {
         expect(next).toEqual(offModel)
       }),
-      Command.expectExact(NavigateInternal({ url: urlToString(howToUrl) })),
+      // The address is written out, not printed with the function `update`
+      // uses, so the test would catch that function printing it wrongly.
+      Command.expectExact(NavigateInternal({ url: 'http://localhost/how-to' })),
       Command.resolve(NavigateInternal, Message.CompletedNavigateInternal()),
     )
   })
@@ -981,31 +983,67 @@ describe('routing', () => {
     )
   })
 
-  // Leaving the tuner's page switches the tuner off, whatever it was doing.
-  // `Off` is what makes the runtime release the microphone (the managed
-  // resource, tested above under 'microphone requirement'), so no microphone stays
-  // open on a page that shows no tuner. A failure message is cleared the
-  // same way. No Command is needed: the Model is all the runtime goes by.
+  // Leaving the tuner's page switches the tuner off, whatever it was doing,
+  // and wherever the address went: the how-to page, or an address the app
+  // does not have. `Off` is what makes the runtime release the microphone
+  // (the managed resource, tested above under 'microphone requirement'), so
+  // no microphone stays open on a page that shows no tuner. A failure
+  // message is cleared the same way.
+  //
+  // The one Command is `FocusPageHeading`: see the next test.
+  describe.each([
+    ['the how-to page', howToUrl, AppRoute.HowTo()],
+    [
+      'an unknown address',
+      urlOf('http://localhost/nope'),
+      AppRoute.NotFound({ path: '/nope' }),
+    ],
+  ])('leaving the tuner page for %s', (_, url, route) => {
+    test.each([
+      ['starting', startingModel],
+      ['listening', listening({ level: 0.4 })],
+      ['failed', failedModel],
+      ['off', offModel],
+    ])('while %s switches the tuner off', (_, start) => {
+      story(
+        update,
+        given(start),
+        message(Message.ChangedUrl({ url })),
+        model(next => {
+          expect(next.route).toEqual(route)
+          expect(next.tuner).toEqual(TunerState.Off())
+        }),
+        Command.resolve(FocusPageHeading, Message.CompletedFocusPageHeading()),
+      )
+    })
+  })
+
+  // A page change without a page load leaves the browser where it was:
+  // scrolled wherever the last page was, with focus on nothing, since the
+  // link that had it is gone. A screen reader would say nothing at all. So
+  // each change of page returns one Command, which scrolls to the top and
+  // moves focus to the new page's heading, and a screen reader reads that
+  // heading out. `expectExact` says it is the only Command.
   test.each([
-    ['starting', startingModel],
-    ['listening', listening({ level: 0.4 })],
-    ['failed', failedModel],
-    ['off', offModel],
-  ])('leaving the tuner page while %s switches the tuner off', (_, start) => {
+    ['the tuner to the how-to page', offModel, howToUrl],
+    [
+      'the how-to page to the tuner',
+      modifyFields(offModel, { route: () => AppRoute.HowTo() }),
+      tunerUrl,
+    ],
+    ['the tuner to an unknown address', offModel, urlOf('http://localhost/x')],
+  ])('going from %s moves focus to the new page', (_, start, url) => {
     story(
       update,
       given(start),
-      message(Message.ChangedUrl({ url: howToUrl })),
-      model(next => {
-        expect(next.route).toEqual(AppRoute.HowTo())
-        expect(next.tuner).toEqual(TunerState.Off())
-      }),
-      Command.expectNone(),
+      message(Message.ChangedUrl({ url })),
+      Command.expectExact(FocusPageHeading()),
+      Command.resolve(FocusPageHeading, Message.CompletedFocusPageHeading()),
     )
   })
 
-  // An address change that stays on the tuner's page, such as a fragment
-  // added to the address, leaves the tuner alone.
+  // An address change that stays on the same page, such as a fragment added
+  // to the address, leaves the tuner alone and moves nothing.
   test('an address change that stays on the tuner page keeps it listening', () => {
     const start = listening({ level: 0.4 })
 
@@ -1027,33 +1065,22 @@ describe('routing', () => {
       update,
       given(listening()),
       message(Message.ChangedUrl({ url: howToUrl })),
+      Command.resolve(FocusPageHeading, Message.CompletedFocusPageHeading()),
       message(Message.ChangedUrl({ url: tunerUrl })),
       model(next => {
         expect(next.route).toEqual(AppRoute.Tuner())
         expect(next.tuner).toEqual(TunerState.Off())
       }),
-      Command.expectNone(),
+      Command.resolve(FocusPageHeading, Message.CompletedFocusPageHeading()),
     )
   })
 
-  // An address no route matches is a page too, so the app always has
-  // something to draw.
-  test('an unknown address is the not-found page', () => {
-    story(
-      update,
-      given(offModel),
-      message(Message.ChangedUrl({ url: urlOf('http://localhost/nope') })),
-      model(next => {
-        expect(next.route).toEqual(AppRoute.NotFound({ path: '/nope' }))
-      }),
-    )
-  })
-
-  // The two navigation Commands report back when they have run. There is
+  // The three routing Commands report back when they have run. There is
   // nothing to do with the news.
   test.each([
     ['CompletedNavigateInternal', Message.CompletedNavigateInternal()],
     ['CompletedLoadExternal', Message.CompletedLoadExternal()],
+    ['CompletedFocusPageHeading', Message.CompletedFocusPageHeading()],
   ])('%s changes nothing', (_, completed) => {
     story(
       update,

@@ -16,7 +16,7 @@ import { type Html, type HtmlBuilder } from 'foldkit/html'
 
 import { type Message } from '../main'
 import { tunerRouter } from '../route'
-import { textLink } from './link'
+import { pageHeadingAttributes, textLink } from './link'
 
 // VIEW
 
@@ -28,7 +28,15 @@ export const view = (path: string, h: HtmlBuilder<Message>): Html =>
   h.div(
     [],
     [
-      h.h2([h.Class('mt-8 font-semibold text-slate-50')], ['Page not found']),
+      // The heading that names this page: focus moves here when the page
+      // appears (src/page/link.ts, `pageHeadingAttributes`).
+      h.h2(
+        [
+          ...pageHeadingAttributes(h),
+          h.Class('mt-8 font-semibold text-slate-50 outline-none'),
+        ],
+        ['Page not found'],
+      ),
       h.p([h.Class('mt-3 text-slate-200')], [`There is no page at ${path}.`]),
       h.p([h.Class('mt-6')], [textLink(tunerRouter(), 'Back to the tuner', h)]),
     ],

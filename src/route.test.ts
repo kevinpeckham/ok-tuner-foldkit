@@ -48,8 +48,8 @@ describe('urlToAppRoute', () => {
   })
 
   // Anything else is NotFound, which carries the path so the page can say
-  // what was asked for. Paths are matched exactly: a longer path is not the
-  // how-to page, and neither is the same word in capitals.
+  // what was asked for. A longer path is not the how-to page, and neither is
+  // the same word in capitals.
   test.each([
     ['http://localhost/nope', '/nope'],
     ['http://localhost/how-to/extra', '/how-to/extra'],

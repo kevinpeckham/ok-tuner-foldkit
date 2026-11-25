@@ -25,7 +25,7 @@ import { type Html, type HtmlBuilder } from 'foldkit/html'
 // nothing from main.ts at run time.
 import { type Message } from '../main'
 import { tunerRouter } from '../route'
-import { textLink } from './link'
+import { pageHeadingAttributes, textLink } from './link'
 
 // The tips, kept as data. `view` maps them to list items.
 // `ReadonlyArray<string>` is the house spelling of `readonly string[]`
@@ -59,8 +59,13 @@ export const view = (h: HtmlBuilder<Message>): Html =>
           ),
         ],
         [
+          // The heading that names this page: focus moves here when the
+          // page appears (src/page/link.ts, `pageHeadingAttributes`).
           h.h2(
-            [h.Class('font-semibold text-slate-50')],
+            [
+              ...pageHeadingAttributes(h),
+              h.Class('font-semibold text-slate-50 outline-none'),
+            ],
             ['How to use the tuner'],
           ),
           h.p(

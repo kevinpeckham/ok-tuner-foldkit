@@ -25,7 +25,7 @@
 2. **Back and forward buttons.** They arrive as `ChangedUrl`, never as `ClickedLink`. Story test in Task 2: `ChangedUrl` alone changes the route.
 3. **Leaving while the tuner is starting, listening or failed.** Each must end `Off`. Story tests in Task 2, one per state.
 4. **A trailing slash, a query string, or different case.** `/how-to/` and `/how-to?x=1` are the how-to page; `/How-To` is not found. Tests in Task 1.
-5. **A Model saved by the dev server before this change has no `route`.** The dev restore must not crash the page. Checked by hand on the dev server (Task 4).
+5. **A Model saved by the dev server before this change has no `route`.** The dev restore must not crash the page. Read in Foldkit's source, not exercised: a Model that fails the Schema's decode is dropped and `init` runs (`FINDINGS.md`).
 
 ---
 

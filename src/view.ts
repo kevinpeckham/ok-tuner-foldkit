@@ -143,7 +143,7 @@ import { failureSentence } from './microphone'
 // The other two pages. Each file exports a function called `view`, so they
 // are imported as namespaces: `HowTo.view(h)`.
 import * as HowTo from './page/howTo'
-import { textLink } from './page/link'
+import { pageHeadingAttributes, textLink } from './page/link'
 import * as NotFound from './page/notFound'
 // Pure note arithmetic: the nearest note to a frequency, the frequency of a
 // MIDI note, and a note's name. No Foldkit in there.
@@ -374,7 +374,21 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
       h.div(
         [h.Class('mx-auto w-full max-w-[600px]')],
         [
-          h.h1([h.Class('font-serif text-3xl')], ['OK Tuner']),
+          // The site's name. On the tuner's page it is also the heading
+          // that names the page, so there it takes the attributes that let
+          // focus move to it when the page appears (src/page/link.ts). The
+          // other two pages mark a heading of their own.
+          h.h1(
+            [
+              ...AppRoute.match(model.route, {
+                Tuner: () => pageHeadingAttributes(h),
+                HowTo: () => [],
+                NotFound: () => [],
+              }),
+              h.Class('font-serif text-3xl outline-none'),
+            ],
+            ['OK Tuner'],
+          ),
           AppRoute.match(model.route, {
             Tuner: () => tunerPageView(model, h),
             HowTo: () => HowTo.view(h),

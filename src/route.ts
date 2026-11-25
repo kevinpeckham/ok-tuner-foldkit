@@ -50,11 +50,19 @@ export const AppRoute = defineRouteUnion({
 // (src/main.ts, the note at `TunerState`).
 export type AppRoute = typeof AppRoute.Type
 
+// The id of the heading that names the page showing. Every page's view
+// puts it on one heading, and the `FocusPageHeading` Command in src/main.ts
+// moves focus to the element that has it when the page changes. It lives in
+// this file because the views and main.ts both need it, and both already
+// import from here.
+export const PAGE_HEADING_ID = 'page-heading'
+
 // ROUTER
 
 // A router is built in two steps, joined with `pipe`:
-//   1. a description of the path. `Route.root` matches `/` and nothing
-//      else. `literal('how-to')` matches the one segment `how-to`.
+//   1. a description of the path. `Route.root` matches a path with no
+//      segments, which is `/`. `literal('how-to')` matches the one segment
+//      `how-to`.
 //   2. `Route.mapTo(constructor)`, which ties the path to a route. The
 //      result can parse a matching address into that route, and, called as a
 //      function, print the path for it.
@@ -82,7 +90,9 @@ export const howToRouter = pipe(literal('how-to'), Route.mapTo(AppRoute.HowTo))
 //
 // What matches, as pinned in src/route.test.ts: a trailing slash, a query
 // string and a fragment are ignored, so `/how-to/` and `/how-to?x=1` are the
-// how-to page. Capitals are not: `/How-To` is not found.
+// how-to page. A path is split at its slashes and empty pieces are dropped,
+// which is why the trailing slash does not count (and why `//` is the tuner
+// too). Capitals do count: `/How-To` is not found.
 /** The route for an address. Never fails: an unknown address is NotFound. */
 export const urlToAppRoute = Route.parseUrlWithFallback(
   Route.oneOf(howToRouter, tunerRouter),

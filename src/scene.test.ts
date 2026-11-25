@@ -128,7 +128,7 @@ import {
 } from './main'
 import { REFUSED } from './microphone'
 import { DEFAULT_PREFERENCES } from './preferences'
-import { AppRoute } from './route'
+import { AppRoute, PAGE_HEADING_ID } from './route'
 import { view } from './view'
 
 // FIXTURES
@@ -610,6 +610,27 @@ describe('pages', () => {
       expect(text(/\/nope/)).toExist(),
       expect(backLink).toHaveAttr('href', '/'),
       expect(powerButton).toBeAbsent(),
+    )
+  })
+
+  // Each page marks the heading that names it with the id that the
+  // `FocusPageHeading` Command looks for, and makes it focusable from code
+  // with `tabindex="-1"` (a heading cannot take focus otherwise). Foldkit
+  // sets that one as the DOM property `tabIndex`, which is the name a scene
+  // knows it by. When the
+  // page changes, focus moves there and a screen reader reads it out
+  // (FINDINGS.md, "A page change is silent unless the app moves focus").
+  test.each([
+    ['tuner', AppRoute.Tuner(), 'OK Tuner'],
+    ['how-to', AppRoute.HowTo(), 'How to use the tuner'],
+    ['not-found', AppRoute.NotFound({ path: '/nope' }), 'Page not found'],
+  ])('the %s page has one heading for focus to move to', (_, route, name) => {
+    scene(
+      { update, view },
+      given(onRoute(route)),
+      expect(role('heading', { name })).toHaveAttr('id', PAGE_HEADING_ID),
+      expect(role('heading', { name })).toHaveAttr('tabIndex', '-1'),
+      expectAll(all.selector(`#${PAGE_HEADING_ID}`)).toHaveCount(1),
     )
   })
 

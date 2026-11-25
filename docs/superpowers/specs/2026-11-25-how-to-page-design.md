@@ -47,3 +47,10 @@ The microphone must never stay open on a page that shows no tuner.
 ## Left to the builder
 
 File names, the link's styling, and the exact wording of the not-found page.
+
+## Changes during the build
+
+Recorded on 2026-11-25, after the build and its review. Where this section and the text above disagree, this section is what was built.
+
+- **A page change moves focus and scroll.** The review found that a change of page left focus on nothing and the window where it was, so a screen reader said nothing. Each change of page now returns a Command that scrolls to the top and focuses the heading that names the new page.
+- **What the review found and was left** is in `docs/backlog.md`, under "Pages and routing".

@@ -46,9 +46,10 @@
     -->
     <meta name="robots" content="noindex" />
     <!--
-      The title the tab shows before the script has run. The view returns
-      the same text as its Document title, and the runtime keeps
-      document.title set to that. Change the two together.
+      The title the tab shows before the script has run. Once it has, the
+      view returns a title for whichever page is showing (pageTitle in
+      src/view.ts) and the runtime sets document.title to it. This text is
+      the tuner's title there: change the two together.
     -->
     <title>OK Tuner | Chromatic Instrument Tuner</title>
   </head>

@@ -56,9 +56,9 @@ const DEVTOOLS_MAX_ENTRIES = 500
 // `Runtime.makeElement`, is for an app that lives inside a page it does not
 // own.
 //
-// Two options are left out because this app has no use for them:
-// `resources` (services that live as long as the app does) and `crash.view`
-// (a crash screen of its own, in place of Foldkit's default).
+// Some options are left out because this app has no use for them, among
+// them `resources` (services that live as long as the app does) and
+// `crash.view` (a crash screen of its own, in place of Foldkit's default).
 const application = Runtime.makeApplication({
   // The Schema of the Model. The runtime uses it in development, to save the
   // Model before a reload and to restore it afterwards.
@@ -89,9 +89,9 @@ const application = Runtime.makeApplication({
   //                 that opens in another tab, and a download link.
   //   onUrlChange   the address changed: after the app asked for a new one,
   //                 or because of the back or forward button.
-  // The presence of this option is also what makes `init` take the address
-  // as its second argument (src/main.ts, INIT), and the runtime passes it
-  // the address the page was opened at.
+  // The presence of this option is also what lets `init` take the address
+  // as its second argument (src/main.ts, INIT): the runtime passes it the
+  // address the page was opened at.
   routing: {
     onUrlRequest: request => Message.ClickedLink({ request }),
     onUrlChange: url => Message.ChangedUrl({ url }),

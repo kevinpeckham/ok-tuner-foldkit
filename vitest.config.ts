@@ -17,7 +17,8 @@
 //   - `src/scene.test.ts` renders the view and finds elements by role and
 //     label.
 // The other test files check the plain modules (`pitch`, `tuning`,
-// `preferences`, `microphone`, `sentry`, and storage).
+// `preferences`, `microphone`, `sentry`, `route` and storage), and
+// `src/view.test.ts` checks the page titles, which a scene cannot see.
 
 // The same `defineConfig` idea as in `vite.config.ts`, from Vitest's own
 // entry point so that the `test` field is typed.

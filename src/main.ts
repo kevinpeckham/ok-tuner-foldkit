@@ -87,6 +87,7 @@ import { Duration, Effect, Option, Schema, Stream } from 'effect'
 import { KeyValueStore } from 'effect/persistence'
 import {
   Command,
+  Dom,
   ManagedResource,
   type Runtime,
   Subscription,
@@ -120,7 +121,7 @@ import {
   preferencesFromJson,
   preferencesToJson,
 } from './preferences'
-import { AppRoute, urlToAppRoute } from './route'
+import { AppRoute, PAGE_HEADING_ID, urlToAppRoute } from './route'
 import { reportMicrophoneProblem } from './sentry'
 import { type Tuning } from './tuning'
 
@@ -293,9 +294,9 @@ export type Model = typeof Model.Type
 // in SucceededSavePreferences or FailedSavePreferences, and ReportProblem in
 // CompletedReportProblem.
 //
-// There is no "NoOp" Message, and FOLDKIT.md forbids one. Six of the
+// There is no "NoOp" Message, and FOLDKIT.md forbids one. Seven of the
 // Messages below change nothing in the Model (ReleasedMicrophone, the two
-// results of SavePreferences, and the three that start with Completed). Each
+// results of SavePreferences, and the four that start with Completed). Each
 // still says what
 // happened, so the Message history in the Foldkit DevTools reads as a record
 // of events.
@@ -326,8 +327,9 @@ export const Message = defineMessageUnion({
   // The next two come from the runtime, through the `routing` option in
   // src/entry.ts (see ROUTING in the header).
   // A link in the page was clicked. `UrlRequest` is Foldkit's tagged union
-  // of the two kinds of link: `Internal({ url })` for an address of this app
-  // and `External({ href })` for any other.
+  // of the two kinds of link: `Internal({ url })` for an address on this
+  // site (the same origin, whether or not the app has a page there) and
+  // `External({ href })` for any other.
   ClickedLink: { request: UrlRequest },
   // The address changed. `Url` is Foldkit's Schema for a parsed address:
   // protocol, host, port, pathname, search and hash.
@@ -335,6 +337,8 @@ export const Message = defineMessageUnion({
   // From the two navigation Commands: each ran.
   CompletedNavigateInternal: {},
   CompletedLoadExternal: {},
+  // From the FocusPageHeading Command: it ran.
+  CompletedFocusPageHeading: {},
 })
 export type Message = typeof Message.Type
 
@@ -533,6 +537,40 @@ export const LoadExternal = Command.define('LoadExternal', {
   messages: [Message.CompletedLoadExternal],
   execute: ({ href }) =>
     load(href).pipe(Effect.as(Message.CompletedLoadExternal())),
+})
+
+// Takes the person to the top of the page that has just appeared: scrolls
+// the window to the top, then moves keyboard focus to the heading that
+// names the page. `update` returns it whenever the page changes.
+//
+// A browser does both by itself when it loads a page. A change of page
+// inside the app is not a page load, so neither happens: the window stays
+// scrolled where it was, and focus is left on nothing, because the link
+// that had it is gone. A screen reader then says nothing, and its user
+// cannot tell that anything happened. Moving focus to the heading makes it
+// read the heading out (FINDINGS.md, "A page change is silent unless the
+// app moves focus").
+//
+// `Dom.focus` (from Foldkit's `Dom` module) waits until the render that
+// follows this Message has reached the page, so the new page's heading is
+// there to be found, and then focuses the element the selector matches.
+// `preventScroll` stops the focus from scrolling the page again. The
+// heading has `tabindex="-1"` in the view, without which a heading cannot
+// take focus.
+//
+// `Dom.focus` fails with `ElementNotFound` if no element matches. A Command
+// has to end in a Message whatever happens (FOLDKIT.md, "Commands"), and
+// the app would do nothing about a heading it could not find, so
+// `Effect.ignore` drops the failure.
+export const FocusPageHeading = Command.define('FocusPageHeading', {
+  messages: [Message.CompletedFocusPageHeading],
+  execute: Effect.sync(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }).pipe(
+    Effect.andThen(Dom.focus(`#${PAGE_HEADING_ID}`, { preventScroll: true })),
+    Effect.ignore,
+    Effect.as(Message.CompletedFocusPageHeading()),
+  ),
 })
 
 // UPDATE
@@ -770,8 +808,13 @@ const applyA4Input = (model: Model, value: string): UpdateReturn => {
 // Leaving the tuner's page switches the tuner off, whatever it was doing.
 // `Off` is all it takes to close the microphone: the managed resource below
 // requires it only while Starting or Listening, so the runtime releases it.
-// A microphone is thus never open on a page that shows no tuner. A failure
-// message is cleared the same way. An address change that stays on the
+// A microphone is thus never left open on a page that shows no tuner. A
+// failure message is cleared the same way.
+//
+// NOTE: one case is not instant. If the person leaves while the browser is
+// still asking for permission and then grants it, the microphone opens and
+// the runtime closes it at once: an acquisition that has started cannot be
+// interrupted. An address change that stays on the
 // tuner's page leaves the tuner as it is.
 //
 // `AppRoute.match` is the route union's exhaustive matcher, like
@@ -927,14 +970,27 @@ export const update = (model: Model, message: Message) =>
     // The address changed (step b). This is the only place the route is
     // set, so a click, the back button and the forward button all arrive
     // here and are treated alike.
-    ChangedUrl: ({ url }) => ({
-      model: enterRoute(model, urlToAppRoute(url)),
-    }),
+    //
+    // When the page changes, the FocusPageHeading Command goes with it. An
+    // address change that stays on the same page, such as a fragment added
+    // to the address, returns no Command. The two routes are compared by
+    // tag, which is enough to tell one page from another.
+    ChangedUrl: ({ url }) => {
+      const nextRoute = urlToAppRoute(url)
+      const isNewPage = nextRoute._tag !== model.route._tag
 
-    // The two navigation Commands ran. Nothing follows from that.
+      return {
+        model: enterRoute(model, nextRoute),
+        commands: isNewPage ? [FocusPageHeading()] : [],
+      }
+    },
+
+    // The three routing Commands ran. Nothing follows from that.
     CompletedNavigateInternal: () => ({ model }),
 
     CompletedLoadExternal: () => ({ model }),
+
+    CompletedFocusPageHeading: () => ({ model }),
   })
 
 // MANAGED RESOURCE
