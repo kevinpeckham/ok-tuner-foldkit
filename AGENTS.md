@@ -25,6 +25,10 @@ The port and the allowed host are passed by the launcher, so `vite.config.ts` ca
 
 OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `src/lib/components/Tuner.svelte`), written to learn Foldkit. The design is `docs/superpowers/specs/2026-11-24-tuner-design.md`. It is live at <https://www.oktuner.com/>.
 
+### Pages
+
+The app has routing: the routes are in `src/route.ts`, and the route is a field of the Model. To add a page, add its route and router there, a view under `src/page/`, and its case in `pageTitle` and `view` in `src/view.ts` (the compiler asks for both, and for the case in `enterRoute` in `src/main.ts`). Links are plain `<a>` elements built with `textLink` and a router, never a typed-out path. Only `ChangedUrl` sets the route. A Scene test cannot follow a link: see `FINDINGS.md` for how navigation is tested.
+
 ### Findings
 
 [`FINDINGS.md`](./FINDINGS.md) is the log of gotchas and of why things are the way they are. Read the section for the area you are about to change. Add an entry whenever a tool, a pattern or our own process does something that was not obvious, in the same change that met it. A rule to follow goes in this file, not there.

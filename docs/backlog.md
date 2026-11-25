@@ -61,7 +61,6 @@ Items are grouped by kind, not ranked.
 
 ## Page content
 
-- **"How to use the tuner" on its own page.** Move it off the main page, so the main page is cleaner and simpler to look at. This is the app's first second page: it brings routing with it, and a link to the new page.
 - **Footer:** copyright, attribution, and links to Stem Shovel and Lightning Jar.
 - **"Built with Foldkit"** in the footer, linking to the Foldkit project.
 - **Ad-free and tracker-free, in the title.** Update the page title to say so.
