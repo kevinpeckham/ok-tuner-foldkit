@@ -32,9 +32,11 @@
 ### Task 1: The routes
 
 **Files:**
+
 - Create: `src/route.ts`, `src/route.test.ts`
 
 **Interfaces:**
+
 - Produces: `AppRoute` (`defineRouteUnion` with `Tuner: {}`, `HowTo: {}`, `NotFound: { path: Schema.String }`) and its type; `tunerRouter(): string` (`'/'`); `howToRouter(): string` (`'/how-to'`); `urlToAppRoute(url: Url): AppRoute`.
 
 - [ ] **Step 1: Write `src/route.test.ts`.** A helper `urlOf(raw)` built on `fromString` from `foldkit/url`. Assertions:
@@ -50,9 +52,11 @@
 ### Task 2: The route in the Model
 
 **Files:**
+
 - Modify: `src/main.ts`, `src/entry.ts`, `src/story.test.ts`, `src/scene.test.ts` (its `offModel` helper only)
 
 **Interfaces:**
+
 - Consumes: Task 1's exports.
 - Produces:
   - `Model.route: AppRoute`.
@@ -69,7 +73,7 @@
   - `ChangedUrl` to `/` while `Listening` on `Tuner` keeps the tuner listening.
   - `ChangedUrl` to `/how-to` then to `/` gives `route` `Tuner` and `tuner` `Off`.
   - `CompletedNavigateInternal` and `CompletedLoadExternal` change nothing.
-  Use `Command.resolveAllExact` wherever a Command is expected (`FINDINGS.md`, on `resolveAll`).
+    Use `Command.resolveAllExact` wherever a Command is expected (`FINDINGS.md`, on `resolveAll`).
 - [ ] **Step 2: Run** `bun run test src/story.test.ts`. Expected: FAIL on the new tests.
 - [ ] **Step 3: Implement** in `src/main.ts` and `src/entry.ts`. `ChangedUrl` sets the route, and sets the tuner `Off` when the next route is not `Tuner`.
 - [ ] **Step 4: Run** `bun run test && bun run typecheck && bun run lint`. Expected: all pass.
@@ -78,10 +82,12 @@
 ### Task 3: The pages
 
 **Files:**
+
 - Create: `src/page/howTo.ts`, `src/page/notFound.ts`
 - Modify: `src/view.ts`, `src/scene.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Model.route`, `tunerRouter`, `howToRouter`.
 - Produces: `view(h): Html` in each page file; `view(model, h): Document` in `src/view.ts` chooses the page and the title by route.
 
@@ -98,6 +104,7 @@
 ### Task 4: Serving, proof and docs
 
 **Files:**
+
 - Modify: `vercel.json`, `README.md`, `AGENTS.md`, `FINDINGS.md`, `docs/backlog.md`
 
 - [ ] **Step 1: Add the rewrite** to `vercel.json`: `{ "source": "/(.*)", "destination": "/index.html" }`.
