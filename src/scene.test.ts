@@ -127,6 +127,7 @@ import {
   update,
 } from './main'
 import { REFUSED } from './microphone'
+import { DEFAULT_PREFERENCES } from './preferences'
 import { AppRoute, PAGE_HEADING_ID } from './route'
 import { view } from './view'
 
@@ -145,7 +146,16 @@ const urlOf = (raw: string) =>
     () => new Error(`Not an address: ${raw}`),
   )
 
-const offModel: Model = init(urlOf('http://localhost/')).model
+// The very first Model: the page is drawn, and the app is not running yet.
+const firstModel: Model = init(urlOf('http://localhost/')).model
+
+// The Model once the saved preferences have been read, which is when the
+// app counts as running and the On / Off button works. Every other fixture
+// starts from here. See the same pair in story.test.ts.
+const offModel: Model = update(
+  firstModel,
+  Message.CompletedLoadPreferences({ preferences: DEFAULT_PREFERENCES }),
+).model
 
 // The fields of the `Listening` state, each optional, without its `_tag`.
 type ListeningFields = Partial<Omit<typeof TunerState.Listening.Type, '_tag'>>
@@ -214,6 +224,27 @@ const litString = selector('[aria-current="true"]')
 // and a bare `li` counted ten strings where there are six (FINDINGS.md, "Scope a locator to the part of
 // the page it is about").
 const strings = all.selector('[aria-label="Strings"] li')
+
+// The page as the build draws it and as a browser first shows it, before
+// the script has run. The On / Off button is there and says what it is, but
+// it is disabled: a press could not do anything yet. `toBeDisabled` passes
+// for `aria-disabled="true"`, which is how Foldkit's Button marks itself.
+describe('before the app is running', () => {
+  const powerButton = role('button', { name: 'On / Off' })
+
+  test('the power button is drawn disabled', () => {
+    scene(
+      { update, view },
+      given(firstModel),
+      expect(powerButton).toBeDisabled(),
+      expect(powerButton).toHaveAttr('aria-pressed', 'false'),
+    )
+  })
+
+  test('the power button works once the app is running', () => {
+    scene({ update, view }, given(offModel), expect(powerButton).toBeEnabled())
+  })
+})
 
 // Turning the tuner on and off with the On / Off button, and what the page
 // says when the microphone cannot be opened.

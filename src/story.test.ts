@@ -129,7 +129,19 @@ const urlOf = (raw: string) =>
 const tunerUrl = urlOf('http://localhost/')
 const howToUrl = urlOf('http://localhost/how-to')
 
-const offModel: Model = init(tunerUrl).model
+// The very first Model, as `init` builds it: the page has been drawn but
+// the app is not running yet, so the tuner is `Booting`.
+const firstModel: Model = init(tunerUrl).model
+
+// The Model a moment later, once the saved preferences have been read. That
+// is the Message which says the app is running, so the tuner is `Off`. Every
+// other fixture starts from here, because it is the state a person meets.
+// The Model is taken from a real call to `update`, to keep it in step with
+// the app.
+const offModel: Model = update(
+  firstModel,
+  Message.CompletedLoadPreferences({ preferences: DEFAULT_PREFERENCES }),
+).model
 
 // The off Model with its `tuner` field swapped for another state.
 const withTuner = (tuner: TunerState): Model =>
@@ -183,6 +195,7 @@ const silence = Message.MeasuredInput({ level: 0, maybePitch: Option.none() })
 // gives NaN, and an assertion on it fails instead of passing by accident.
 const needleOf = (next: Model): number =>
   TunerState.match(next.tuner, {
+    Booting: () => Number.NaN,
     Off: () => Number.NaN,
     Starting: () => Number.NaN,
     Listening: ({ needleCents }) => needleCents,
@@ -193,6 +206,7 @@ const needleOf = (next: Model): number =>
 // changes the value inside a `Some` and leaves a `None` as it is.
 const readingOf = (next: Model): Option.Option<number> =>
   TunerState.match(next.tuner, {
+    Booting: () => Option.none(),
     Off: () => Option.none(),
     Starting: () => Option.none(),
     Listening: ({ maybeReading }) =>
@@ -210,11 +224,30 @@ describe('init', () => {
   // field can hold text that is not a valid pitch while the person is
   // typing. Union values are plain data, so `toEqual` against a freshly
   // built `TunerState.Off()` compares them by structure.
-  test('it starts off, on standard tuning, with A4 at 440', () => {
-    expect(offModel.tuner).toEqual(TunerState.Off())
-    expect(offModel.tuningId).toBe('standard')
-    expect(offModel.a4).toBe(440)
-    expect(offModel.a4Input).toBe('440')
+  test('it starts booting, on standard tuning, with A4 at 440', () => {
+    expect(firstModel.tuner).toEqual(TunerState.Booting())
+    expect(firstModel.tuningId).toBe('standard')
+    expect(firstModel.a4).toBe(440)
+    expect(firstModel.a4Input).toBe('440')
+  })
+
+  // The build draws the page from this Model, and a browser shows that
+  // drawing before the script has run. A button pressed then would do
+  // nothing, so the tuner starts in a state of its own, `Booting`, in which
+  // the view draws the On / Off button disabled (FINDINGS.md, "A
+  // prerendered page looks ready before it is"). The button sends no
+  // Message while disabled. This pins what `update` would do with one all
+  // the same: nothing.
+  test('pressing power while booting does nothing', () => {
+    story(
+      update,
+      given(firstModel),
+      message(Message.ClickedPower()),
+      model(next => {
+        expect(next).toEqual(firstModel)
+      }),
+      Command.expectNone(),
+    )
   })
 
   // What a returning visitor saved is read afterwards, by a Command that
@@ -236,7 +269,7 @@ describe('saved preferences', () => {
   test('the saved tuning and A4 replace the defaults', () => {
     story(
       update,
-      given(offModel),
+      given(firstModel),
       message(
         Message.CompletedLoadPreferences({
           preferences: { tuningId: 'bass', a4: 442 },
@@ -252,17 +285,42 @@ describe('saved preferences', () => {
     )
   })
 
-  // A first visit: nothing is saved, the Command answers with the defaults,
-  // and the Model is as it was.
-  test('with nothing saved, nothing changes', () => {
+  // The same Message is the sign that the app is running: it can only
+  // arrive once the runtime has taken the page over and run a Command. The
+  // tuner leaves `Booting` for `Off`, and from here the On / Off button
+  // works.
+  test('the tuner is ready once the preferences have been read', () => {
     story(
       update,
-      given(offModel),
+      given(firstModel),
+      message(
+        Message.CompletedLoadPreferences({
+          preferences: { tuningId: 'bass', a4: 442 },
+        }),
+      ),
+      model(next => {
+        expect(next.tuner).toEqual(TunerState.Off())
+      }),
+      message(Message.ClickedPower()),
+      model(next => {
+        expect(next.tuner).toEqual(TunerState.Starting())
+      }),
+    )
+  })
+
+  // A first visit: nothing is saved, the Command answers with the defaults,
+  // and the only change is that the tuner is now ready.
+  test("with nothing saved, only the tuner's state changes", () => {
+    story(
+      update,
+      given(firstModel),
       message(
         Message.CompletedLoadPreferences({ preferences: DEFAULT_PREFERENCES }),
       ),
       model(next => {
-        expect(next).toEqual(offModel)
+        expect(next).toEqual(
+          modifyFields(firstModel, { tuner: () => TunerState.Off() }),
+        )
       }),
       Command.expectNone(),
     )
@@ -270,7 +328,8 @@ describe('saved preferences', () => {
 })
 
 // The On / Off button sends one Message, `ClickedPower`. What it does depends
-// on the state the tuner is in, so there is one test for each state.
+// on the state the tuner is in, so there is one test for each state. (The
+// first state, `Booting`, has its test under 'init' above.)
 describe('power', () => {
   // The first story, taken one step at a time.
   test('pressing power when off starts the tuner', () => {
@@ -702,6 +761,7 @@ describe('microphone requirement', () => {
   })
 
   test.each([
+    ['booting', firstModel],
     ['off', offModel],
     ['failed', failedModel],
   ])('the microphone is not required while %s', (_name, start) => {

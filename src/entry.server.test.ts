@@ -67,6 +67,20 @@ describe('the tuner page, as the build writes it', () => {
     expect(html).not.toContain('Quick tips')
   })
 
+  // A browser shows this file before the script has run, when a press on
+  // the On / Off button could do nothing. So the button is written disabled,
+  // and the app enables it once it is running (FINDINGS.md, "A prerendered
+  // page looks ready before it is"). The pattern finds the opening tag of
+  // the button whose text is "On / Off".
+  test('has the power button disabled', async () => {
+    const html = await documentAt('/')
+    const powerButton = /<button[^>]*>(?:(?!<\/button>)[^])*On \/ Off/.exec(
+      html,
+    )
+
+    expect(powerButton?.[0]).toContain('aria-disabled="true"')
+  })
+
   // The first Model is the same for every visitor, so the page in the file
   // shows the default tuning. A saved one replaces it in the browser.
   test('shows the default tuning', async () => {
