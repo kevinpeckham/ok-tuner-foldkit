@@ -1,12 +1,13 @@
 {
   "name": "ok-tuner-foldkit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build && mv dist/client/404/index.html dist/client/404.html && rmdir dist/client/404",
     "preview": "vite preview --outDir dist/client",
+    "og:image": "varlock run -- bun scripts/og-image.ts",
     "typecheck": "tsc --noEmit",
     "format": "oxfmt",
     "test": "vitest run",

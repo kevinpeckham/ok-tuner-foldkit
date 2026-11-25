@@ -170,6 +170,89 @@ describe('the privacy page, as the build writes it', () => {
   })
 })
 
+// What a search engine and a link preview read: each page's own address,
+// its own description, and the tags that make a shared link show a title,
+// a sentence and a picture (Open Graph). The site is public, so the pages
+// no longer ask not to be indexed.
+describe('what a search engine and a link preview read', () => {
+  const pages: ReadonlyArray<readonly [string, string, string]> = [
+    ['/', 'https://www.oktuner.com/', 'OK Tuner | Chromatic Instrument Tuner'],
+    [
+      '/how-to',
+      'https://www.oktuner.com/how-to',
+      'How to use the tuner | OK Tuner',
+    ],
+    [
+      '/built-with',
+      'https://www.oktuner.com/built-with',
+      'Built with | OK Tuner',
+    ],
+    ['/privacy', 'https://www.oktuner.com/privacy', 'Privacy | OK Tuner'],
+  ]
+
+  // The canonical address is the one true address of a page. It always
+  // names the live site, whatever host the page was served from, so a copy
+  // of the site at another address points back to the original.
+  test.each(pages)('%s names its own address', async (path, address) => {
+    const html = await documentAt(path)
+
+    expect(html).toContain(`<link rel="canonical" href="${address}" />`)
+    expect(html).toContain(`<meta property="og:url" content="${address}" />`)
+  })
+
+  test.each(pages)(
+    '%s can be indexed and previewed',
+    async (path, _, title) => {
+      const html = await documentAt(path)
+
+      expect(html).not.toContain('noindex')
+      expect(html).toContain(`<meta property="og:title" content="${title}" />`)
+      expect(html).toContain('<meta property="og:type" content="website" />')
+      expect(html).toContain(
+        '<meta property="og:site_name" content="OK Tuner" />',
+      )
+      expect(html).toContain(
+        '<meta property="og:image" content="https://www.oktuner.com/og-image.png" />',
+      )
+      expect(html).toContain(
+        '<meta name="twitter:card" content="summary_large_image" />',
+      )
+    },
+  )
+
+  // Each page describes itself, in the search result and in the preview
+  // alike, and no two pages say the same thing.
+  test('every page has a description of its own', async () => {
+    const descriptions = await Promise.all(
+      pages.map(async ([path]) => {
+        const html = await documentAt(path)
+        const description =
+          /<meta name="description" content="([^"]+)" \/>/.exec(html)?.[1] ?? ''
+
+        expect(html).toContain(
+          `<meta property="og:description" content="${description}" />`,
+        )
+
+        return description
+      }),
+    )
+
+    expect(descriptions.every(description => description.length > 40)).toBe(
+      true,
+    )
+    expect(new Set(descriptions).size).toBe(pages.length)
+  })
+
+  // The 404 page is the exception. It has no address of its own, and it
+  // should never be listed.
+  test('the not-found page has no address and asks not to be indexed', async () => {
+    const html = await documentAt(NOT_FOUND_PATH)
+
+    expect(html).toContain('<meta name="robots" content="noindex" />')
+    expect(html).not.toContain('rel="canonical"')
+  })
+})
+
 describe('every document', () => {
   // The header, with the brand, is shared too, and each page has one
   // first-level heading of its own.
@@ -190,14 +273,12 @@ describe('every document', () => {
     expect(html).toContain('Ported from')
   })
 
-  // The site is not public yet. vercel.json says so in a header, and every
-  // page says so in its own head. `DOCUMENT_HEAD` is checked for the tag,
-  // and the document is checked for `DOCUMENT_HEAD`, so a `renderDocument`
-  // that dropped it would fail here.
-  test('asks search engines not to index it, and links the icons', async () => {
+  // The three icon links are in every head. `DOCUMENT_HEAD` is checked for
+  // the tags, and the document is checked for `DOCUMENT_HEAD`, so a
+  // `renderDocument` that dropped it would fail here.
+  test('links the icons', async () => {
     const html = await documentAt('/')
 
-    expect(DOCUMENT_HEAD).toContain('<meta name="robots" content="noindex" />')
     expect(DOCUMENT_HEAD).toContain('href="/favicon.svg"')
     expect(DOCUMENT_HEAD).toContain('href="/favicon-48.png"')
     expect(DOCUMENT_HEAD).toContain('href="/apple-touch-icon.png"')

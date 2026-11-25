@@ -44,13 +44,14 @@ bun run lint
 bun run format
 bun run build      # writes dist/client (the site) and dist/server
 bun run preview    # serves dist/client; open /how-to/ with the trailing slash
+bun run og:image   # retakes public/og-image.png (needs 1Password access)
 ```
 
 The microphone needs a secure origin: `localhost` or HTTPS.
 
 ## Environment
 
-`.env.schema` declares the environment, loaded with [Varlock](https://varlock.dev). The tuner itself reads no environment variable. There is one secret, `SENTRY_AUTH_TOKEN`, used only when a Vercel build uploads source maps. It lives in a 1Password environment; `.env.local` (git-ignored) holds the two values that reach it, `OP_TOKEN` and `OP_ENV_ID`.
+`.env.schema` declares the environment, loaded with [Varlock](https://varlock.dev). The tuner itself reads no environment variable. There are two secrets: `SENTRY_AUTH_TOKEN`, used only when a Vercel build uploads source maps, and `BROWSERLESS_API_KEY`, used only by `bun run og:image`. They live in a 1Password environment; `.env.local` (git-ignored) holds the two values that reach it, `OP_TOKEN` and `OP_ENV_ID`.
 
 Without 1Password access, leave Varlock out:
 
@@ -86,6 +87,10 @@ Reports are sent only from the project's own hosts, listed in `src/sentry.ts`, a
 
 [Apache License 2.0](./LICENSE), the same as Stem Shovel, which the tuner is ported from. © 2026 Lightning Jar.
 
+## Search engines and link previews
+
+The live site is public. Each page has a canonical address, a description and Open Graph tags, written into its HTML by `src/entry.server.ts`; `public/sitemap.xml` and `public/robots.txt` are served as they are. The preview picture, `public/og-image.png`, is a screenshot of the home page taken through [Browserless](https://www.browserless.io) by `bun run og:image`. Only `www.oktuner.com` is indexed: `vercel.json` marks every other host `noindex`, and sets the Content Security Policy and the other security headers.
+
 ## Deployment
 
-The site is prerendered: a build writes each page as an HTML file, and Vercel serves the files in `dist/client` with the settings in `vercel.json`. There is no server at run time. Pull requests get a preview, `main` is production. An address with no file is a 404, answered with `404.html`: the app's own not-found page, drawn by the build like the others. The Vercel project holds only `OP_TOKEN` and `OP_ENV_ID`. Each build uploads the browser bundle's source maps to Sentry and removes them from the output; a build without the token fails. Every response carries `X-Robots-Tag: noindex` until the tuner is made public.
+The site is prerendered: a build writes each page as an HTML file, and Vercel serves the files in `dist/client` with the settings in `vercel.json`. There is no server at run time. Pull requests get a preview, `main` is production. An address with no file is a 404, answered with `404.html`: the app's own not-found page, drawn by the build like the others. The Vercel project holds only `OP_TOKEN` and `OP_ENV_ID`. Each build uploads the browser bundle's source maps to Sentry and removes them from the output; a build without the token fails. Responses from any host other than `www.oktuner.com` carry `X-Robots-Tag: noindex`.

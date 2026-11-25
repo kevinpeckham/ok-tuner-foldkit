@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Every page of the site, for search engines. The list is written by hand
+  and held to the app's own list of pages by a test (src/site.test.ts): add
+  a page to `pagePaths` in src/entry.server.ts without adding it here, and
+  the test fails.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.oktuner.com/</loc></url>
+  <url><loc>https://www.oktuner.com/how-to</loc></url>
+  <url><loc>https://www.oktuner.com/built-with</loc></url>
+  <url><loc>https://www.oktuner.com/privacy</loc></url>
+</urlset>

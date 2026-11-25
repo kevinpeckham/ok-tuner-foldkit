@@ -36,8 +36,9 @@
 // pages are prerendered").
 //
 // Read next: src/entry.ts, the browser's half, and `init` in src/main.ts.
-import { Effect } from 'effect'
+import { Effect, Option } from 'effect'
 import { Server } from 'foldkit/experimental'
+import { fromString } from 'foldkit/url'
 
 // `init` and `view` are the same two functions the browser uses. Nothing
 // about them is particular to the build: that is the point. `update` is not
@@ -45,12 +46,15 @@ import { Server } from 'foldkit/experimental'
 // and stops.
 import { init } from './main'
 import {
+  AppRoute,
   builtWithRouter,
   howToRouter,
   privacyRouter,
   tunerRouter,
+  urlToAppRoute,
 } from './route'
-import { view } from './view'
+import { OG_IMAGE_URL, SITE_NAME } from './site'
+import { pageDescription, view } from './view'
 
 // The site's pages, by path. The paths come from the routers in
 // src/route.ts, so a path is still spelled in one place only.
@@ -98,41 +102,96 @@ export const prerenderPaths: ReadonlyArray<string> = [
 
 // What every page carries in its `<head>` besides what Foldkit puts there.
 // Foldkit's document already has the character set, the viewport, the
-// page's title, the stylesheet and the script. These are ours:
-//   - the site icon, three ways. The files are in public/, which Vite
-//     copies into the output as they are. The SVG is for browsers that
-//     accept an SVG icon and the 48px PNG for those that do not. The
-//     apple-touch-icon is what a phone's home screen shows (FINDINGS.md, "An
-//     SVG that a browser draws inline can still fail as an image").
-//   - `noindex`, which asks search engines not to index the site while it
-//     is not public. vercel.json says the same a second way, as an
-//     X-Robots-Tag header on every response. Making the site crawlable
-//     means removing both (docs/backlog.md, "Make the page crawlable").
+// page's title, its canonical address, the stylesheet and the script. These
+// are ours: the site icon, three ways. The files are in public/, which Vite
+// copies into the output as they are. The SVG is for browsers that accept
+// an SVG icon and the 48px PNG for those that do not. The apple-touch-icon
+// is what a phone's home screen shows (FINDINGS.md, "An SVG that a browser
+// draws inline can still fail as an image").
 //
 // This is HTML written as a string, and it is put into the page as it
 // stands. It must only ever hold text written here, never anything taken
 // from a request.
-/** Extra tags for the head of every page. Exported for the test. */
+/** Tags for the head of every page. Exported for the test. */
 export const DOCUMENT_HEAD = [
   '<link rel="icon" href="/favicon-48.png" type="image/png" sizes="48x48" />',
   '<link rel="icon" href="/favicon.svg" type="image/svg+xml" />',
   '<link rel="apple-touch-icon" href="/apple-touch-icon.png" />',
-  '<meta name="robots" content="noindex" />',
 ].join('\n')
 
+// Makes text safe to put inside a double-quoted attribute. Everything that
+// goes through it today is a constant from this project, so nothing needs
+// escaping yet. It is here so that a description with a quotation mark or
+// an ampersand in it does not break the page.
+const escapeAttribute = (text: string): string =>
+  text
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+
+// One `<meta>` tag. Open Graph tags name themselves with `property`, and
+// the ordinary ones with `name`.
+const metaTag = (
+  attribute: 'name' | 'property',
+  key: string,
+  content: string,
+): string =>
+  `<meta ${attribute}="${key}" content="${escapeAttribute(content)}" />`
+
+// The tags that differ from page to page: what a search result and a link
+// preview say about this page.
+//
+// Which page it is has to be worked out, because `renderDocument` is given
+// the rendered page and not the request. The page's canonical address is
+// in what it is given (the view supplied it: `canonicalOf` in src/view.ts),
+// so the route is read back from that, with the same `urlToAppRoute` that
+// the app uses. A page with no canonical address is the not-found page.
+//
+//   description          the sentence under the title in a search result
+//   og:title and others  Open Graph: what a chat or a social network shows
+//                        when the address is shared. The address itself
+//                        (`og:url`) is written by Foldkit, from the
+//                        canonical address.
+//   twitter:card         asks for the large picture in a preview
+//   robots noindex       on the not-found page only: it should never be
+//                        listed. The site's real pages carry no such tag.
+const pageHead = (application: Server.RenderedApplication): string => {
+  const maybeRoute = Option.fromNullishOr(application.canonical).pipe(
+    Option.flatMap(fromString),
+    Option.map(urlToAppRoute),
+  )
+  const description = pageDescription(
+    Option.getOrElse(maybeRoute, () => AppRoute.NotFound({ path: '' })),
+  )
+
+  return [
+    metaTag('name', 'description', description),
+    metaTag('property', 'og:title', application.title),
+    metaTag('property', 'og:description', description),
+    metaTag('property', 'og:type', 'website'),
+    metaTag('property', 'og:site_name', SITE_NAME),
+    metaTag('property', 'og:image', OG_IMAGE_URL),
+    metaTag('name', 'twitter:card', 'summary_large_image'),
+    ...Option.match(maybeRoute, {
+      onNone: () => [metaTag('name', 'robots', 'noindex')],
+      onSome: () => [],
+    }),
+  ].join('\n')
+}
+
 // Builds the whole document around a rendered page. `Server.renderDocument`
-// writes the doctype, the `<head>` and the `<body>`: the title comes from
-// the `Document` that the view returned (`pageTitle` in src/view.ts), and
-// `assets` holds the addresses of the built stylesheet and script, which
-// the plugin supplies. The two options are the page's language and the tags
-// above.
+// writes the doctype, the `<head>` and the `<body>`: the title and the
+// canonical address come from the `Document` that the view returned
+// (`pageTitle` and `canonicalOf` in src/view.ts), and `assets` holds the
+// addresses of the built stylesheet and script, which the plugin supplies.
+// The two options are the page's language and the tags above.
 //
 // The plugin looks for an export with this name.
 /** Turns one rendered page into a complete HTML document. */
 export const renderDocument: Server.DocumentRenderer = (application, assets) =>
   Server.renderDocument(application, assets, {
     lang: 'en',
-    head: DOCUMENT_HEAD,
+    head: `${DOCUMENT_HEAD}\n${pageHead(application)}`,
   })
 
 // Renders the app at one address, and returns an Effect of the result.

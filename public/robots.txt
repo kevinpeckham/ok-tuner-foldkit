@@ -1,0 +1,5 @@
+# OK Tuner is public: every crawler may read every page.
+User-agent: *
+Allow: /
+
+Sitemap: https://www.oktuner.com/sitemap.xml

@@ -29,6 +29,15 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 
 The app has routing: the routes are in `src/route.ts`, and the route is a field of the Model. To add a page, add its route and router there, a view under `src/page/`, and its case in `pageTitle` and `view` in `src/view.ts` (the compiler asks for both, and for the case in `enterRoute` in `src/main.ts`). Nothing asks for the router to be listed in `Route.oneOf` in `urlToAppRoute`: leave it out and the page shows "Page not found", so add a row to `src/route.test.ts`. Nothing asks for its path in `prerenderPaths` in `src/entry.server.ts` either: leave it out and opening the address directly is a 404. Give the page one `<h1>` with `pageHeadingAttributes`, which is where focus moves when the page appears. Links are plain `<a>` elements built with `textLink` and a router, never a typed-out path. A link to another site is the same element with a full address: the runtime tells the two apart. Addresses used in more than one place are constants in `src/site.ts`. The header (`src/header.ts`) and the footer (`src/footer.ts`) are drawn over and under every page by `view`, outside the `<main>`. Every page has exactly one `<h1>`, which names the page and carries `pageHeadingAttributes`. "OK Tuner" is the brand link in the header, never a heading. Only `ChangedUrl` sets the route. A Scene test cannot follow a link: see `FINDINGS.md` for how navigation is tested.
 
+### The site is public
+
+Since 2026-11-25 the live site can be indexed. What that rests on:
+
+- **A page has a canonical address and a description.** `canonicalOf` and `pageDescription` in `src/view.ts` take a case for every route (the compiler asks), and `public/sitemap.xml` lists every page (`src/site.test.ts` holds it to `pagePaths`).
+- **Only `www.oktuner.com` is indexed.** `vercel.json` adds `X-Robots-Tag: noindex` on every other host, and the 404 page carries its own `noindex`.
+- **The Content Security Policy is in `vercel.json`.** Scripts and stylesheets come from the site only, and requests go to the site and to Sentry. Anything new that loads from or sends to another origin has to be allowed there, and the policy only applies on Vercel, so try it against a build served with those headers before merging (`FINDINGS.md`).
+- **The link-preview picture** is `public/og-image.png`, a screenshot of the live home page. Retake it with `bun run og:image` when the home page's look changes, after the new look is deployed.
+
 ### Privacy
 
 The footer says the site is ad-free and privacy-respecting, and `/privacy` (`src/page/privacy.ts`) says exactly what leaves the browser: error reports to Sentry, and page-view counts to Vercel Web Analytics. Keep both true.
@@ -58,6 +67,7 @@ The build writes each page as an HTML file (`src/entry.server.ts`), and the brow
 ### Environment and secrets
 
 - `.env.schema` (committed) declares the environment; Varlock loads it, with values from one 1Password environment. Read the `varlock-docs-mcp` server before changing the schema.
+- `BROWSERLESS_API_KEY` is the second secret, used only by `bun run og:image`. No build needs it.
 - `.env.local` holds only `OP_TOKEN` and `OP_ENV_ID`. Never open or print it, and never run `varlock load --format …`, `varlock printenv` or `varlock reveal` in a session. `bunx varlock load --agent` is the safe look.
 - A new secret goes in `.env.schema`, marked sensitive, and its value into 1Password, which Kevin does. Never into `.env.local` or the Vercel project, which holds only `OP_TOKEN` and `OP_ENV_ID`.
 - Nothing under `src` imports `varlock/env`. Doing so changes what tests and `SKIP_VARLOCK` builds need: decide that first.
@@ -83,4 +93,3 @@ The build writes each page as an HTML file (`src/entry.server.ts`), and the brow
 The full list is [`docs/backlog.md`](./docs/backlog.md). Everything there is planned, not forgotten. Do not add an item as a side effect of other work. The ones most likely to be added by accident:
 
 - Starting to listen when the pointer enters the page.
-- Search-engine work, if the tuner goes public. Until then `vercel.json` and `src/entry.server.ts` both say `noindex`.

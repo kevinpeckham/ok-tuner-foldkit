@@ -165,7 +165,15 @@ import {
 import { A4_MAX, A4_MIN, parseA4 } from './preferences'
 // The routes: `AppRoute` to tell the pages apart, and `howToRouter` to build
 // the path of the how-to page for the link to it.
-import { AppRoute, howToRouter } from './route'
+import {
+  AppRoute,
+  builtWithRouter,
+  howToRouter,
+  privacyRouter,
+  tunerRouter,
+} from './route'
+// The live site's address, for each page's canonical address.
+import { SITE_ORIGIN } from './site'
 // The list of tunings, and two lookups: a tuning by its id, and the string of
 // a tuning that is nearest to a note.
 import { TUNINGS, type Tuning, nearestString, tuningById } from './tuning'
@@ -371,6 +379,42 @@ export const pageTitle = (route: AppRoute): string =>
     NotFound: () => 'Page not found | OK Tuner',
   })
 
+// One sentence about each page, for a search result and for the preview of
+// a shared link. The view itself does not use it: a description is a tag
+// in the document's head, which the build writes (src/entry.server.ts).
+// It lives here, beside the title, so that a new page is given both.
+/** The description of each page, as search engines and link previews show it. */
+export const pageDescription = (route: AppRoute): string =>
+  AppRoute.match(route, {
+    Tuner: () =>
+      'A free chromatic tuner that works in the browser, with no ads and nothing to install. For guitar, bass, ukulele and other stringed instruments.',
+    HowTo: () =>
+      'How to use OK Tuner: switch it on, play one string, and read the note, the needle and the nearest string of your tuning.',
+    BuiltWith: () =>
+      'What OK Tuner is made of: Foldkit, Effect, the Web Audio API and the rest, all of it open source.',
+    Privacy: () =>
+      'What OK Tuner does with data: the sound never leaves your device, there are no ads and no cookies, and visits are counted without identifying anyone.',
+    NotFound: () => 'There is no page at this address.',
+  })
+
+// The canonical address of a page: the one address that search engines
+// should list for it. It is always on the live site (`SITE_ORIGIN`), built
+// from the same routers as the links, so it cannot drift from them.
+//
+// The not-found page has none, which is what `Option.none()` says: it is
+// not a page with an address of its own, and it should never be listed.
+// Foldkit's `Document` has a `canonical` field for this, and leaves the
+// page without one when the view gives none.
+/** The canonical address of a page, if it has one. */
+export const canonicalOf = (route: AppRoute): Option.Option<string> =>
+  AppRoute.match(route, {
+    Tuner: () => Option.some(`${SITE_ORIGIN}${tunerRouter()}`),
+    HowTo: () => Option.some(`${SITE_ORIGIN}${howToRouter()}`),
+    BuiltWith: () => Option.some(`${SITE_ORIGIN}${builtWithRouter()}`),
+    Privacy: () => Option.some(`${SITE_ORIGIN}${privacyRouter()}`),
+    NotFound: () => Option.none(),
+  })
+
 // The body: a dark page ground (`bg-oxford-dark`, a colour defined in
 // styles.css) holding three things, one above the other: the header with
 // the brand, the `<main>` with the page the route names, and the footer.
@@ -392,6 +436,14 @@ export const pageTitle = (route: AppRoute): string =>
 // Model, and the other pages and the footer need nothing but the builder.
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
   title: pageTitle(model.route),
+  // The spread adds `canonical` when the page has one and nothing when it
+  // has not. The runtime writes it to the page's `<link rel="canonical">`,
+  // and the build writes it into the file, with an Open Graph address to
+  // match (src/entry.server.ts).
+  ...Option.match(canonicalOf(model.route), {
+    onNone: () => ({}),
+    onSome: canonical => ({ canonical }),
+  }),
   body: h.div(
     [h.Class('flex min-h-screen flex-col bg-oxford-dark text-slate-100')],
     [
