@@ -100,30 +100,45 @@ export const renderDocument: Server.DocumentRenderer = (application, assets) =>
     head: DOCUMENT_HEAD,
   })
 
+// Renders the app at one address, and returns an Effect of the result.
+//
+// `Server.renderToString` is the build's stand-in for the runtime. It calls
+// `init` with the address, calls `view` with the Model that comes back, and
+// turns the result into HTML. It does not run the Command that `init`
+// returned: Commands run in the browser, after it has taken the page over.
+// The first argument is the same kind of configuration that src/entry.ts
+// gives `Runtime.makeApplication`, cut down to what a single render needs.
+// `routing: {}` says the app has routing, so that `init` is given the
+// address.
+//
+// `buildId` is for the tests. A page that a browser can take over is marked
+// with the id of the build that drew it, so that a script never takes over
+// a page from another build. In a real build Foldkit's plugin compiles the
+// id in, and nothing is passed here. A test run has no build, so a test
+// passes an id of its own. With neither, the render fails with
+// `MissingBuildId`.
+//
+// The function is separate from `renderPage` below so that the tests can
+// call it (src/entry.server.test.ts).
+/** Renders the app at `url`. Fails without a build id: see above. */
+export const renderApplication = (url: string, buildId?: string) =>
+  Server.renderToString(
+    { routing: {}, init, view },
+    buildId === undefined ? { url } : { url, buildId },
+  )
+
 // Renders the page for one request. The plugin looks for an export with
 // this name too, and calls it with a standard `Request`: at build time one
 // for each path above, and in development one for each page the browser
 // asks for.
 //
-// `Server.renderToString` is the build's stand-in for the runtime. It calls
-// `init` with the request's address, calls `view` with the Model that comes
-// back, and turns the result into HTML. It does not run the Command that
-// `init` returned: Commands run in the browser, after it has taken the
-// page over. The first argument is the same kind of configuration that
-// src/entry.ts gives `Runtime.makeApplication`, cut down to what a single
-// render needs. `routing: {}` says the app has routing, so that `init` is
-// given the address.
-//
-// The result is an Effect, as most things in Foldkit are. The plugin wants
-// a Promise, so `Effect.runPromise` runs it here. This is the one place in
-// the project where an Effect is run by hand outside a test: there is no
-// Foldkit runtime in a build to do it. `Server.Rendered` wraps the page as
-// "send this, with status 200".
+// `renderApplication` gives an Effect, as most things in Foldkit do. The
+// plugin wants a Promise, so `Effect.runPromise` runs it here. This is the
+// one place in the project where an Effect is run by hand outside a test:
+// there is no Foldkit runtime in a build to do it. `Server.Rendered` wraps
+// the page as "send this, with status 200".
 /** Renders the page a request asks for. */
 export const renderPage = (request: Request): Promise<Server.EntryResult> =>
   Effect.runPromise(
-    Server.renderToString(
-      { routing: {}, init, view },
-      { url: request.url },
-    ).pipe(Effect.map(Server.Rendered)),
+    renderApplication(request.url).pipe(Effect.map(Server.Rendered)),
   )

@@ -34,9 +34,9 @@ The app has routing: the routes are in `src/route.ts`, and the route is a field 
 The build writes each page as an HTML file (`src/entry.server.ts`), and the browser takes the HTML over with `Runtime.hydrate`. There is no `index.html` and no server at run time.
 
 - `init` and `view` run in Node during the build. Keep them free of `window`, `document` and `localStorage`, and keep the first Model the same for every visitor: anything read from the browser arrives by a Command, as the saved preferences do.
-- Foldkit marks server rendering experimental. After a Foldkit upgrade, run `SKIP_VARLOCK=1 bun run build`, check that both pages are generated, and click through the built pages before anything else.
+- Foldkit marks server rendering experimental. After a Foldkit upgrade, run `SKIP_VARLOCK=1 bun run build`, check that both pages are generated and that `dist/client/how-to/index.html` holds the how-to text, then `bun run preview` and click through before anything else. Open `/how-to/` with the trailing slash: Vite's preview answers `/how-to` with the tuner's file, and the browser quietly rebuilds a page that does not match.
 - Head tags go in `DOCUMENT_HEAD` in `src/entry.server.ts`, and by hand in `public/404.html`, which is not part of the app.
-- A unit test cannot call `renderPage`: see `FINDINGS.md`.
+- `renderPage` needs a build id that only a real build has. Tests call `renderApplication` with an id of their own (`src/entry.server.test.ts`).
 
 ### Findings
 

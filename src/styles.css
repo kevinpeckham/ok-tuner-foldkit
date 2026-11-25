@@ -1,7 +1,7 @@
 /*
  * styles.css: the app's one stylesheet, and all of its Tailwind configuration.
  *
- * Where this file sits. `index.html` links it, and the `@tailwindcss/vite`
+ * Where this file sits. `src/entry.ts` imports it, and the `@tailwindcss/vite`
  * plugin (see `vite.config.ts`) compiles it. There is no `tailwind.config.js`:
  * in Tailwind 4 the configuration is written in CSS, and this is it. Foldkit
  * plays no part here. The classes themselves are written in `src/view.ts`, as

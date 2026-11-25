@@ -14,6 +14,9 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **Why not render per request.** The app has no per-visitor data on a server, so a function on every visit would add cost and nothing else. The host stays static.
 - **How.** Foldkit's Vite plugin bundles the app twice, for the browser and for Node, then calls `renderPage` in `src/entry.server.ts` once for each path in `prerenderPaths` and writes the result. The browser's script calls `Runtime.hydrate`, which takes the HTML over where `Runtime.run` would draw the page from nothing.
 - **What it costs.** Foldkit marks this experimental and says to expect breaking changes: after a Foldkit upgrade, run a build and the browser check before anything else. The app no longer shows Foldkit's Flags. A page added to `src/route.ts` must also be added to `prerenderPaths`, and nothing checks that.
+- **A page that looks ready before it is.** The tuner is drawn before the script has run, and a press on On / Off in that time is lost: nothing replays it. With the script held back three seconds, a click at 0.14 s left the tuner off. Found by the review. In the backlog.
+- **The script's name changes on every build,** because the build id is random and compiled into it. Every deploy, a docs-only one included, makes a returning visitor download the script again (161 kB compressed). The stylesheet's name is stable.
+- **An old page whose script is gone** shows the tuner with a dead On / Off and no message, where it used to be blank. How often Vercel produces that was not checked.
 - **Tried first.** A throwaway spike on a branch answered the open questions before the design was written: the views needed no change, and the saved preferences did (next entry).
 - **Where.** `src/entry.server.ts`, `src/entry.ts`, the `ssr` option in `vite.config.ts`, `outputDirectory` in `vercel.json`. The design is `docs/superpowers/specs/2026-11-25-prerender-design.md`.
 
@@ -82,12 +85,13 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 ### What prerendering asks of the code (2026-11-25, prerender)
 
 - **`init` and `view` must not depend on the browser.** The build runs them in Node. Ours needed no change, because they were pure already. The server bundle also imports `sentry.ts` through `main.ts`, which is safe because nothing there runs on import: Sentry starts from `src/instrument.ts`, which only the browser's entry imports.
-- **There is no source `index.html`.** The build starts from the script, and the plugin refuses to build with a root document in the way. The stylesheet is imported from `src/entry.ts`, which needs `src/vite-env.d.ts` for the compiler to accept it. Head tags move to `renderDocument`.
+- **There is no source `index.html`.** The build starts from the script, so a source `index.html` is simply not read. What the plugin refuses is an `index.html` already in the browser output, from `public/` or a stale build. The stylesheet is imported from `src/entry.ts`, which needs `src/vite-env.d.ts` for the compiler to accept it. Head tags move to `renderDocument`.
 - **The output moves** to `dist/client`, with the Node bundle in `dist/server`. `vercel.json` has to say so.
 - **Commands from `init` run in the browser only.** The build renders the first Model and stops.
 - **`container` is null on a prerendered page.** There is no `#root`: the runtime finds the root the build marked. The option is still required.
 - **The takeover is strict.** By Foldkit's documentation, a page with no server-drawn root, or with one from another deployment's build, is made inert and the app does not start. Not seen, and not tested.
-- **In development** the dev server renders every address through `renderPage`, so an unknown address is the app's own not-found page with status 200. One headless run logged a "Slow patch" warning from Foldkit (10.8 ms against a budget of 8 ms) for the first patch. It is a development diagnostic and was not seen on the built pages.
+- **A page that does not match is rebuilt, silently.** The browser keeps the elements that match what it would draw and replaces the rest, with nothing in the console. On the built site that happens at `/index.html` and `/how-to/index.html`: the file's page shows, then "Page not found" replaces it.
+- **In development** the dev server renders every address through `renderPage`, so an unknown address is the app's own not-found page with status 200. The page it draws is unstyled until the script has run, because the dev server leaves the stylesheet to the script. One headless run logged a "Slow patch" warning from Foldkit (10.8 ms against a budget of 8 ms) for the first patch. It is a development diagnostic and was not seen on the built pages.
 - **Where.** `src/entry.server.ts`, `src/entry.ts`, `vite.config.ts`.
 
 ### A page change is silent unless the app moves focus (2026-11-25, routing)
@@ -178,10 +182,12 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Testing
 
-### What a test run cannot show about the server entry (2026-11-25, prerender)
+### The server entry is tested by rendering with a build id of its own (2026-11-25, prerender)
 
-- **What happens.** `Server.renderToString` refuses to render a page that a browser could take over unless it has a build id, which the Vite plugin compiles in during a real build. A Vitest run has none, so `renderPage` cannot be called in a test.
-- **What to do.** The tests pin what is plain data: the list of paths and the head tags. The proof of rendering is the build itself (`generated /`, `generated /how-to`, and what is in the two files), then the browser click-through against the built pages, then a saved "Bass" surviving a reload.
+- **What happens.** `Server.renderToString` refuses to render a page that a browser could take over unless it knows the build id, which the Vite plugin compiles in during a real build. A Vitest run has none, so `renderPage` itself fails there with `MissingBuildId`.
+- **What to do.** Pass one: the render options take a `buildId`. `renderApplication` in `src/entry.server.ts` exists so that a test can. The tests render each prerendered path, wrap it with `renderDocument`, and check the title, the text, the head tags and that no path comes out as "Page not found".
+- **What I got wrong first.** The first version of this entry said the function could not be tested, and pinned only the list of paths and a constant. The review found the option.
+- **What is still by hand.** That the files are written and served. `bun run preview` serves `dist/client`, but Vite's preview answers `/how-to` with the tuner's file (open `/how-to/`), and the browser rebuilds a page that does not match without a word, so a click-through looks right even if `how-to/index.html` were missing. Look at the files, or fetch `/how-to` from a Vercel preview.
 - **Where.** `src/entry.server.test.ts`.
 
 ### A Scene test cannot follow a link (2026-11-25, routing)
@@ -340,7 +346,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 - **Why.** The alternative is a green build that ships stack traces nobody can read. `SENTRY_AUTH_TOKEN` is `@required=forEnv(preview, production)`, and `APP_ENV` falls back from Vercel's `VERCEL_ENV`.
 - **Proved by.** Renaming the item in the schema and watching a production-mode build stop.
-- **Upload rule.** Source maps are made and uploaded only when `VERCEL` is set and the token is present. They are "hidden" (no pointer in the bundle) and deleted from `dist/` after upload. A local build makes no maps.
+- **Upload rule.** Source maps are made and uploaded only when `VERCEL` is set and the token is present. They are "hidden" (no pointer in the bundle) and deleted from the output after upload. Since 2026-11-25 only the browser bundle has them: the Node bundle that draws the pages gets none. A local build makes no maps.
 
 ### An undeclared variable is treated as a secret (2026-11-24, Varlock)
 

@@ -60,8 +60,9 @@
 // microphone, no browser storage and no runtime.
 //
 // This file never starts the runtime either. FOLDKIT.md ("File Organization")
-// keeps `Runtime.run` in src/entry.ts, so tests can import these definitions
-// without booting an app.
+// keeps the call that does, `Runtime.hydrate`, in src/entry.ts, so tests and
+// the build's server entry can import these definitions without booting an
+// app.
 //
 // Reading order: FOLDKIT.md for the conventions, then src/entry.ts to see how
 // the exports below are handed to the runtime, then this file, then

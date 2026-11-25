@@ -137,8 +137,10 @@ export default defineConfig({
     // `dist/client`, which is what Vercel serves (`vercel.json`), and once
     // for Node, into `dist/server`, which exists only to do the rendering.
     //
-    // NOTE: Foldkit marks server rendering experimental. Source for all of
-    // this: `repos/foldkit/packages/vite-plugin-foldkit/README.md`.
+    // NOTE: Foldkit marks server rendering experimental. Sources: the
+    // README in `repos/foldkit/packages/vite-plugin-foldkit/`, and for
+    // `build.prerender`, `prerenderPaths` and the two output folders,
+    // `src/build.ts` beside it.
     foldkit({
       ssr: {
         serverEntry: '/src/entry.server.ts',
@@ -166,8 +168,9 @@ export default defineConfig({
     // so only its maps are worth uploading. `applyToEnvironment` is Vite's
     // way of limiting a plugin to some environments: it is called with each
     // one, and the plugin's build hooks run only where it answers true.
-    // `sentryVitePlugin` may return one plugin or several, hence `flat` and
-    // `map`.
+    // (Vite marks the option experimental, and a plugin's `config` hooks
+    // still run for every environment.) `sentryVitePlugin` may return one
+    // plugin or several, hence `flat` and `map`.
     ...[
       sentryVitePlugin({
         org: 'lightning-jar',
@@ -175,7 +178,8 @@ export default defineConfig({
         authToken: sentryAuthToken,
         telemetry: false,
         disable: !uploadsSourceMaps,
-        // The maps are for Sentry, not for the site: removed once uploaded.
+        // The maps are for Sentry, not for the site: the browser bundle's
+        // are removed once uploaded.
         sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] },
       }),
     ]
@@ -191,6 +195,12 @@ export default defineConfig({
     // upload, and nothing served to a browser refers to them. `false`, for
     // every other build, writes no maps at all.
     sourcemap: uploadsSourceMaps ? 'hidden' : false,
+  },
+  // Settings for one environment override the ones above. The Node bundle
+  // exists only to draw the pages during the build, and nothing reports
+  // errors from it, so it gets no source map.
+  environments: {
+    ssr: { build: { sourcemap: false } },
   },
   optimizeDeps: {
     // In development Vite pre-bundles the app's dependencies, and it finds

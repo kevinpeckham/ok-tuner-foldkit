@@ -13,7 +13,9 @@
 // Vercel answers with public/404.html, a page written by hand that says the
 // same thing. This view is what shows when the app itself arrives at an
 // address it does not have, without a page load, and in development, where
-// the dev server renders every address through the app.
+// the dev server renders every address through the app. It also shows for
+// an address that is a file but not a route, such as `/index.html`: the
+// file's page appears, then this one replaces it (docs/backlog.md).
 import { type Html, type HtmlBuilder } from 'foldkit/html'
 
 import { type Message } from '../main'

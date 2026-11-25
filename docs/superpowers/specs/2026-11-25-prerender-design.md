@@ -63,3 +63,12 @@ For saved preferences, two ways were weighed:
 ## Left to the builder
 
 Names, the wording and look of `404.html`, and how the Sentry plugin is limited to one bundle.
+
+## Changes during the build
+
+Recorded on 2026-11-25, after the build and its review. Where this section and the text above disagree, this section is what was built.
+
+- **Source maps are uploaded for the browser bundle only,** and the Node bundle gets none. The Sentry plugin is limited with Vite's `applyToEnvironment`.
+- **The server entry is tested by rendering.** The first version said it could not be; the review found that the render takes a build id as an option.
+- **`bun run preview` serves `dist/client`.**
+- **What the review found and was left** is in `docs/backlog.md` under "Pages and routing": a press before the script has run is lost, the script is downloaded again after every deploy, and two file addresses show their page and then "Page not found".

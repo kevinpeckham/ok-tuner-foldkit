@@ -15,8 +15,10 @@ import { reportCrash } from './sentry'
 import { view } from './view'
 // The stylesheet. Vite sees this import in a build, compiles the file with
 // the Tailwind plugin, writes it to a hashed file, and gives its address to
-// the document (src/entry.server.ts). Nothing is imported into the script:
-// the line is here only so that the build finds the stylesheet. The file
+// the document (src/entry.server.ts). In a build nothing is imported into
+// the script: the line is here only so that the build finds the
+// stylesheet. In development Vite does load it through the script, so the
+// page the dev server draws is unstyled until the script has run. The file
 // itself explains the theme.
 import './styles.css'
 
@@ -52,7 +54,7 @@ import './styles.css'
 const DEVTOOLS_MAX_ENTRIES = 500
 
 // `Runtime.makeApplication` assembles the app from its parts and returns a
-// program. Nothing is rendered and nothing runs yet: `Runtime.run` below
+// program. Nothing is rendered and nothing runs yet: `Runtime.hydrate` below
 // starts it.
 //
 // "Application" means the app owns the whole page. Its view returns a
@@ -91,18 +93,18 @@ const application = Runtime.makeApplication({
   //   onUrlChange   the address changed: after the app asked for a new one,
   //                 or because of the back or forward button.
   // The presence of this option is also what lets `init` take the address
-  // as its second argument (src/main.ts, INIT): the runtime passes it the
-  // address the page was opened at.
+  // as its argument (src/main.ts, INIT): the runtime passes it the address
+  // the page was opened at.
   routing: {
     onUrlRequest: request => Message.ClickedLink({ request }),
     onUrlChange: url => Message.ChangedUrl({ url }),
   },
-  // The element the app would be rendered into if the page did not already
-  // hold it. It does: the build drew the app into the HTML, and marked its
-  // root, the <main>, for the runtime to find. So there is no element with
-  // this id, the call returns null, and Foldkit uses the root it found. The
-  // option is required all the same, and Foldkit's own prerendered example
-  // passes it this way.
+  // The element an app started with `Runtime.run` is rendered into. This
+  // app is not: the build drew it into the HTML, and marked its root, the
+  // <main>, for the runtime to find. So there is no element with this id,
+  // the call returns null, and Foldkit uses the root it found. The option
+  // is required all the same, and Foldkit's own prerendered example passes
+  // it this way.
   container: document.getElementById('root'),
   // What to do when the app crashes. Foldkit catches an error thrown in
   // `update`, in the view, in a Command, in a subscription or in a managed
