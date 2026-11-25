@@ -8,6 +8,24 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### The pages are prerendered (2026-11-25, prerender)
+
+- **Why.** The server used to send an empty page and a 497 kB script that drew everything. Now the build writes `/` and `/how-to` as HTML (8 kB and 2.4 kB), so the page shows before the script runs, an unknown address is a real 404, and the site is ready to be crawled when `noindex` comes off.
+- **Why not render per request.** The app has no per-visitor data on a server, so a function on every visit would add cost and nothing else. The host stays static.
+- **How.** Foldkit's Vite plugin bundles the app twice, for the browser and for Node, then calls `renderPage` in `src/entry.server.ts` once for each path in `prerenderPaths` and writes the result. The browser's script calls `Runtime.hydrate`, which takes the HTML over where `Runtime.run` would draw the page from nothing.
+- **What it costs.** Foldkit marks this experimental and says to expect breaking changes: after a Foldkit upgrade, run a build and the browser check before anything else. The app no longer shows Foldkit's Flags. A page added to `src/route.ts` must also be added to `prerenderPaths`, and nothing checks that.
+- **Tried first.** A throwaway spike on a branch answered the open questions before the design was written: the views needed no change, and the saved preferences did (next entry).
+- **Where.** `src/entry.server.ts`, `src/entry.ts`, the `ssr` option in `vite.config.ts`, `outputDirectory` in `vercel.json`. The design is `docs/superpowers/specs/2026-11-25-prerender-design.md`.
+
+### A prerendered page cannot start from what the browser has saved (2026-11-25, prerender)
+
+- **Symptom.** In the spike, with "Bass" saved, the prerendered page came back as "Guitar - Standard". The client-rendered site showed "Bass".
+- **Cause.** The saved tuning and A4 were Flags, read from `localStorage` before `init`. In a prerendered app the Flags are written into the HTML by the build, and the browser reads them back from there and computes none of its own. The build has no visitor.
+- **Fix.** Flags left the app. `init` starts everyone on the defaults and returns a `LoadPreferences` Command, which the runtime runs in the browser after it has taken the page over. Its result sets the tuning and A4.
+- **What it costs.** A returning visitor with a saved tuning can see the default tuner first. Measured in headless Chrome: on a fast connection the saved tuning was in place before first paint; on a simulated 4G connection first paint came at 0.36 s and the saved tuning at 0.64 s. The simulation is rough and probably flatters it.
+- **The alternative** was to draw the tuning picker and the strings blank until the preferences were read. Then nobody sees a wrong tuning, and everybody sees an empty tuner.
+- **Where.** `init`, `LoadPreferences` and `CompletedLoadPreferences` in `src/main.ts`; `src/storage.test.ts`.
+
 ### Leaving the tuner's page switches the tuner off (2026-11-25, routing)
 
 - **Why.** "Nothing is recorded" would ring hollow with a microphone open on a page that shows no tuner. Any address change to a route other than `Tuner` sets the tuner to `Off`, and `Off` is all the runtime needs to release the microphone. A failure message is cleared the same way.
@@ -61,6 +79,17 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Foldkit and Effect
 
+### What prerendering asks of the code (2026-11-25, prerender)
+
+- **`init` and `view` must not depend on the browser.** The build runs them in Node. Ours needed no change, because they were pure already. The server bundle also imports `sentry.ts` through `main.ts`, which is safe because nothing there runs on import: Sentry starts from `src/instrument.ts`, which only the browser's entry imports.
+- **There is no source `index.html`.** The build starts from the script, and the plugin refuses to build with a root document in the way. The stylesheet is imported from `src/entry.ts`, which needs `src/vite-env.d.ts` for the compiler to accept it. Head tags move to `renderDocument`.
+- **The output moves** to `dist/client`, with the Node bundle in `dist/server`. `vercel.json` has to say so.
+- **Commands from `init` run in the browser only.** The build renders the first Model and stops.
+- **`container` is null on a prerendered page.** There is no `#root`: the runtime finds the root the build marked. The option is still required.
+- **The takeover is strict.** By Foldkit's documentation, a page with no server-drawn root, or with one from another deployment's build, is made inert and the app does not start. Not seen, and not tested.
+- **In development** the dev server renders every address through `renderPage`, so an unknown address is the app's own not-found page with status 200. One headless run logged a "Slow patch" warning from Foldkit (10.8 ms against a budget of 8 ms) for the first patch. It is a development diagnostic and was not seen on the built pages.
+- **Where.** `src/entry.server.ts`, `src/entry.ts`, `vite.config.ts`.
+
 ### A page change is silent unless the app moves focus (2026-11-25, routing)
 
 - **Symptom.** After a link was activated the new page was drawn, focus sat on `<body>`, and the window stayed scrolled where it had been. A screen reader would have said nothing. Found by the review of the routing branch, in headless Chrome.
@@ -102,7 +131,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **Symptom.** With site data blocked, the page crashed at start-up and again on saving a preference. The final review found it; no test had.
 - **Cause.** Reading `localStorage` throws while `BrowserKeyValueStore.layerLocalStorage` is being built. That is a defect, not a typed failure, so a handler placed before the layer is provided never sees it.
 - **Fix.** `Effect.provide(layer)` first, then `Effect.catchCause`. Blocked storage now means default preferences and an unsaved choice.
-- **Where.** `flags` and `SavePreferences` in `src/main.ts`; `src/storage.test.ts`.
+- **Where.** `LoadPreferences` (which was the `flags` Effect until 2026-11-25) and `SavePreferences` in `src/main.ts`; `src/storage.test.ts`.
 
 ### In development the page can boot already "listening" (2026-11-24, tuner)
 
@@ -128,6 +157,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 - **What happens.** Foldkit's documentation says the view is patched "into the container". In the running page the view's root element (the `<main>`) takes the container's place: `document.getElementById('root')` is null once the app has drawn.
 - **What to do.** Do not style, select or measure `#root`. Seen in headless Chrome while the comments were being written.
+- **Since 2026-11-25** the pages are prerendered and there is no `#root` at all: the `<main>` is in the HTML the build writes.
 
 ### `update`'s return type must name the microphone service, though no Command uses it (2026-11-24, Foldkit)
 
@@ -147,6 +177,12 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **How it was checked.** The comments were added without touching code: each file, with comments stripped, was compared before and after.
 
 ## Testing
+
+### What a test run cannot show about the server entry (2026-11-25, prerender)
+
+- **What happens.** `Server.renderToString` refuses to render a page that a browser could take over unless it has a build id, which the Vite plugin compiles in during a real build. A Vitest run has none, so `renderPage` cannot be called in a test.
+- **What to do.** The tests pin what is plain data: the list of paths and the head tags. The proof of rendering is the build itself (`generated /`, `generated /how-to`, and what is in the two files), then the browser click-through against the built pages, then a saved "Bass" surviving a reload.
+- **Where.** `src/entry.server.test.ts`.
 
 ### A Scene test cannot follow a link (2026-11-25, routing)
 
@@ -341,11 +377,11 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **What happens.** Tailwind 4 scans every file in the project as plain text for class names, comments and Markdown included. An ordinary word that is also a utility name becomes a rule in the built stylesheet.
 - **Seen.** The teaching comments added `.contents{display:contents}` (27 bytes) from the word "contents" in a test file's comment. The stylesheet already carried unused rules from prose in `docs/`: `.hidden`, `.static`, `.container`, `.table`, `.filter`, `.visible`, `.invisible`, `.inline`, `.ring`, `.transition`.
 - **What it costs.** A few unused rules. No class the page uses is affected.
-- **What to do.** Limiting the scan to `src` and `index.html` would end it. In the backlog. Until then, expect the built CSS to move when prose changes.
+- **What to do.** Limiting the scan to `src` would end it. In the backlog. Until then, expect the built CSS to move when prose changes.
 
-### Comments in `index.html` are served (2026-11-24, build)
+### Comments in a hand-written HTML file are served (2026-11-24, build)
 
-- **What happens.** Vite does not strip HTML comments. With the teaching comments the built `index.html` is 3.4 kB where it was 0.7 kB, and the comments are readable in the page source. Comments in TypeScript and CSS are removed by the build: the built script is byte for byte what it was before they were added.
+- **What happens.** Vite does not strip HTML comments. While the project had an `index.html`, its teaching comments took the built file from 0.7 kB to 3.4 kB and were readable in the page source. Since 2026-11-25 the pages are written by the build and carry no comments, and the one hand-written file is `public/404.html`, whose comment is served the same way. Comments in TypeScript and CSS are removed by the build.
 
 ### The lint and TypeScript configuration files carry comments (2026-11-24, tooling)
 
@@ -353,17 +389,17 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Vercel and domains
 
-### An unknown address is answered 200 (2026-11-25, Vercel)
+### The 404 page is written by hand (2026-11-25, Vercel)
 
-- **Why.** Only `index.html` exists, so `vercel.json` rewrites every path that is not a file to it. Without the rewrite, opening `/how-to` directly is a 404. With it, `/nope` is served the app with status 200, and the app then draws its own "Page not found".
-- **What it costs.** A mistyped asset address returns the page, not a 404. And a crawler would see a "soft 404", which matters once `noindex` is removed. Prerendering the pages would fix both, since real files are served first.
-- **The dev server** needs no setting: Vite serves `index.html` for unknown paths by itself.
-- **Where.** `rewrites` in `vercel.json`; `src/page/notFound.ts`.
+- **Why.** With the pages prerendered, an address with no file is a real 404, and Vercel sends `404.html` with it if the output has one. Foldkit's prerender cannot write that file: asked for the path `/404.html`, it writes a folder of that name holding an `index.html`. Tried in the spike.
+- **What was done.** `public/404.html` is a small page with no script and its styles inline, since it cannot know the hashed names of the built files. Its colours are copied from `src/styles.css`, so a change to the look of the site has to be made there too.
+- **Before this.** For one day the app was client-rendered with routing, and `vercel.json` rewrote every path that was not a file to `index.html`. An unknown address was answered 200 and the app drew its own "Page not found": a "soft 404". The app's own not-found page still exists, for an address reached without a page load and for development.
+- **Where.** `public/404.html`; `src/page/notFound.ts`.
 
 ### `oktuner.com` redirects to `www.oktuner.com` (2026-11-24, Vercel)
 
 - **What happens.** The bare domain answers with a 308 to `www`. The app never runs on the bare domain, but both are in the production host list in case the redirect is ever turned round.
-- **Still `noindex`.** Both `vercel.json` (a header on every response) and `index.html` (a meta tag) say so. Making the site crawlable means changing both. In the backlog.
+- **Still `noindex`.** Both `vercel.json` (a header on every response) and the head of every page (a meta tag: `DOCUMENT_HEAD` in `src/entry.server.ts`, and `public/404.html`) say so. Making the site crawlable means changing both. In the backlog.
 
 ### A new project's first deployment becomes production (2026-11-24, Vercel)
 

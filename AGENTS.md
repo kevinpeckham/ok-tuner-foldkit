@@ -27,7 +27,16 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 
 ### Pages
 
-The app has routing: the routes are in `src/route.ts`, and the route is a field of the Model. To add a page, add its route and router there, a view under `src/page/`, and its case in `pageTitle` and `view` in `src/view.ts` (the compiler asks for both, and for the case in `enterRoute` in `src/main.ts`). Nothing asks for the router to be listed in `Route.oneOf` in `urlToAppRoute`: leave it out and the page shows "Page not found", so add a row to `src/route.test.ts`. Give one heading on the page `pageHeadingAttributes`, which is where focus moves when the page appears. Links are plain `<a>` elements built with `textLink` and a router, never a typed-out path. Only `ChangedUrl` sets the route. A Scene test cannot follow a link: see `FINDINGS.md` for how navigation is tested.
+The app has routing: the routes are in `src/route.ts`, and the route is a field of the Model. To add a page, add its route and router there, a view under `src/page/`, and its case in `pageTitle` and `view` in `src/view.ts` (the compiler asks for both, and for the case in `enterRoute` in `src/main.ts`). Nothing asks for the router to be listed in `Route.oneOf` in `urlToAppRoute`: leave it out and the page shows "Page not found", so add a row to `src/route.test.ts`. Nothing asks for its path in `prerenderPaths` in `src/entry.server.ts` either: leave it out and opening the address directly is a 404. Give one heading on the page `pageHeadingAttributes`, which is where focus moves when the page appears. Links are plain `<a>` elements built with `textLink` and a router, never a typed-out path. Only `ChangedUrl` sets the route. A Scene test cannot follow a link: see `FINDINGS.md` for how navigation is tested.
+
+### Prerendering
+
+The build writes each page as an HTML file (`src/entry.server.ts`), and the browser takes the HTML over with `Runtime.hydrate`. There is no `index.html` and no server at run time.
+
+- `init` and `view` run in Node during the build. Keep them free of `window`, `document` and `localStorage`, and keep the first Model the same for every visitor: anything read from the browser arrives by a Command, as the saved preferences do.
+- Foldkit marks server rendering experimental. After a Foldkit upgrade, run `SKIP_VARLOCK=1 bun run build`, check that both pages are generated, and click through the built pages before anything else.
+- Head tags go in `DOCUMENT_HEAD` in `src/entry.server.ts`, and by hand in `public/404.html`, which is not part of the app.
+- A unit test cannot call `renderPage`: see `FINDINGS.md`.
 
 ### Findings
 
@@ -61,4 +70,4 @@ The app has routing: the routes are in `src/route.ts`, and the route is a field 
 The full list is [`docs/backlog.md`](./docs/backlog.md). Everything there is planned, not forgotten. Do not add an item as a side effect of other work. The ones most likely to be added by accident:
 
 - Starting to listen when the pointer enters the page.
-- Prerendering and search-engine work, if the tuner goes public. Until then `vercel.json` and `index.html` both say `noindex`.
+- Search-engine work, if the tuner goes public. Until then `vercel.json`, `src/entry.server.ts` and `public/404.html` all say `noindex`.

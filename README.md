@@ -10,6 +10,7 @@ It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <htt
 - `src/tuning.ts`, `src/preferences.ts`: the tunings, and the tuning and A4 saved in `localStorage`.
 - `src/microphone.ts`: opening and closing the microphone, and reading one measurement.
 - `src/main.ts`: the Model, Messages, `update`, the microphone as a managed resource, and the 50 ms readings as a subscription.
+- `src/entry.server.ts`: how the build writes each page as an HTML file. `src/entry.ts` is the browser's half, which takes that HTML over.
 - `src/route.ts`: the pages as routes: the tuner at `/`, "How to use the tuner" at `/how-to`, and a not-found page.
 - `src/sentry.ts`: everything that touches the Sentry SDK. `src/instrument.ts` starts it before the rest of the app loads.
 - `src/view.ts`: what every page shares, and the tuner's face. `src/page/` holds the other pages.
@@ -20,13 +21,13 @@ The design and the implementation plan are in `docs/superpowers/`. Gotchas, and 
 
 The source is commented for someone learning Foldkit: each file opens with what it is and where it sits, and each declaration says what it does. A good order:
 
-1. `src/entry.ts`: how the app is handed to the Foldkit runtime.
+1. `src/entry.ts`: how the app is handed to the Foldkit runtime in the browser. Then `src/entry.server.ts`: how the same app is drawn into HTML files by the build.
 2. `src/main.ts`: the Model, the Messages, `update`, Commands, the managed resource and the subscription. Most of Foldkit is here.
 3. `src/route.ts`: routing, in one short file. Read it with the ROUTING part of the header of `main.ts`.
 4. `src/view.ts`, then `src/page/`: how the Model becomes the page, and how the page sends Messages.
 5. `src/story.test.ts` and `src/scene.test.ts`: how `update` and the view are tested.
 6. `src/microphone.ts`, `src/pitch.ts`, `src/tuning.ts`, `src/preferences.ts`, `src/sentry.ts`: the parts Foldkit calls into.
-7. `vite.config.ts`, `index.html`, `.env.schema`: the build.
+7. `vite.config.ts`, `.env.schema`, `public/404.html`: the build.
 
 [`FOLDKIT.md`](./FOLDKIT.md) is Foldkit's own guide to the architecture and its conventions.
 
@@ -39,7 +40,7 @@ bun run test
 bun run typecheck
 bun run lint
 bun run format
-bun run build      # writes dist/
+bun run build      # writes dist/client (the site) and dist/server
 ```
 
 The microphone needs a secure origin: `localhost` or HTTPS.
@@ -72,4 +73,4 @@ Reports are sent only from the project's own hosts, listed in `src/sentry.ts`, a
 
 ## Deployment
 
-Vercel builds `dist/` with the settings in `vercel.json`: pull requests get a preview, `main` is production. A rewrite there sends every path that is not a file to `index.html`, so that `/how-to` can be opened directly. The Vercel project holds only `OP_TOKEN` and `OP_ENV_ID`. Each build uploads its source maps to Sentry and removes them from `dist/`; a build without the token fails. Every response carries `X-Robots-Tag: noindex` until the tuner is made public.
+The site is prerendered: a build writes each page as an HTML file, and Vercel serves the files in `dist/client` with the settings in `vercel.json`. There is no server at run time. Pull requests get a preview, `main` is production. An address with no file is a 404, answered with `public/404.html`. The Vercel project holds only `OP_TOKEN` and `OP_ENV_ID`. Each build uploads its source maps to Sentry and removes them from `dist/`; a build without the token fails. Every response carries `X-Robots-Tag: noindex` until the tuner is made public.
