@@ -43,8 +43,8 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 - Errors only: a visit where nothing goes wrong sends nothing. Do not add tracing, replay, the session integration, or anything that identifies a visitor.
 - `@sentry/vite-plugin` must stay at 11.16.0 or later. Earlier versions bundle an upload tool (`sentry` 0.49.0) that, on Vite 8, adds a line to the uploaded copy of the bundle, so every stack frame in Sentry resolves one line off ([sentry-javascript #26658](https://github.com/getsentry/sentry-javascript/issues/26658)). After changing its version, send a test report from production and check that its frames name files under `src/`.
 - A caught failure worth reporting is reported by a Command returned from `update` (`ReportProblem`), not from inside the code that caught it. A person's own choice (refusing the microphone, blocking storage) is not reported.
-- Reports are sent only from our own hosts (`reportsFrom` in `src/sentry.ts`): production (`www.oktuner.com` and the two Vercel addresses), our Vercel previews, and the dev server at `ok-tuner.bench.lj.dev`, tagged `development`. `localhost` reports nothing. Resolve test issues you create.
-- A new domain reports nothing until it is added to `PRODUCTION_HOSTNAMES` in `src/sentry.ts`. If the Sentry project's Allowed Domains is set, add it there too, or Sentry drops what the site sends.
+- Reports are sent only from our own hosts (`reportsFrom` in `src/sentry.ts`): production (`www.oktuner.com`, the bare domain and the two Vercel addresses) and the dev server at `ok-tuner.bench.lj.dev`, tagged `development`. `localhost` and Vercel previews report nothing. Resolve test issues you create.
+- The Sentry project's Allowed Domains setting (Kevin set it on 2026-11-25) holds the same hosts, and Sentry drops a report from any other origin while still answering 200. A new domain reports nothing until it is in both: `PRODUCTION_HOSTNAMES` in `src/sentry.ts`, and Allowed Domains, which Kevin changes. Then send a test report from the new address and check that it appears in Sentry.
 
 ### Conventions that differ from Foldkit's defaults
 

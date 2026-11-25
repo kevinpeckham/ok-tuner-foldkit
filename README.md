@@ -66,7 +66,7 @@ A visit where nothing goes wrong sends nothing. There is no session tracking, tr
 
 An error report does carry the page URL, the browser's locale and timezone, and the clicks and console lines just before it. Sentry also adds an approximate location (country, sometimes a city) on its side, although it stores no IP address.
 
-Reports are sent only from the project's own hosts, listed in `src/sentry.ts`, and tagged `production`, `preview` or `development` by hostname. A fork, or `bun run dev` on `localhost`, reports nothing.
+Reports are sent only from the project's own hosts, listed in `src/sentry.ts`, and tagged `production` or `development` by hostname: the live site and the project's dev server. A fork, a Vercel preview, or `bun run dev` on `localhost`, reports nothing. The Sentry project's Allowed Domains setting holds the same hosts, so Sentry drops a report from anywhere else.
 
 ## Deployment
 

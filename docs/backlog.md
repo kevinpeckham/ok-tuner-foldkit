@@ -49,7 +49,6 @@ Items are grouped by kind, not ranked.
 ## Error reporting
 
 - **Errors thrown by browser extensions are reported.** Sentry has an inbound filter for the common ones (a project setting), and the SDK has `allowUrls` to accept only errors from our own files. Wait until Sentry shows the noise is real.
-- **Production reached at a deployment's own address is tagged `preview`.** `ok-tuner-git-main-…` and the hashed address serve the production build, but the hostname is all the browser has. A build-time value would fix it, which means `src` reading the environment: decide that first (see `AGENTS.md`).
 - **Bundle size.** Sentry took the script from 398 kB to 491 kB (159 kB compressed). The Vite plugin's `bundleSizeOptimizations` may trim it. Measure before and after.
 - **`vite.config.ts` is not type-checked or linted.** Typecheck and lint cover `src` only.
 - **Switch off the rest of the SDK's data categories.** Five are off, the ones that carry a visitor's data. The others gate integrations this app does not install and are left on by default. Setting them off too makes "nothing is collected" hold whatever is installed later; the test named "switches off every data-collection category" would then be true to its name.

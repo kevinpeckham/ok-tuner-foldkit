@@ -127,16 +127,17 @@ afterEach(async () => {
 // The tag on each report that says which deployment sent it. Nothing under
 // `src` reads an environment variable, so the browser has only its hostname
 // to go by (FINDINGS.md, "The environment tag comes from the hostname"). A
-// host that is not on the production list and is not on Vercel counts as
-// development.
+// host that is not on the production list counts as development. That
+// includes a Vercel preview, which reports nothing, so its tag never reaches
+// Sentry.
 describe('environmentOf', () => {
   test.each([
     ['www.oktuner.com', 'production'],
     ['oktuner.com', 'production'],
     ['ok-tuner.vercel.app', 'production'],
     ['ok-tuner-lightning-jar.vercel.app', 'production'],
-    ['ok-tuner-git-feat-x-lightning-jar.vercel.app', 'preview'],
-    ['ok-tuner-88kx3anqq-lightning-jar.vercel.app', 'preview'],
+    ['ok-tuner-git-feat-x-lightning-jar.vercel.app', 'development'],
+    ['ok-tuner-88kx3anqq-lightning-jar.vercel.app', 'development'],
     ['ok-tuner.bench.lj.dev', 'development'],
     ['localhost', 'development'],
     ['', 'development'],
@@ -148,8 +149,11 @@ describe('environmentOf', () => {
 // Whether a host is one of ours. The repository is public, so a copy of the
 // app can run anywhere, and only our own hosts may report (FINDINGS.md,
 // "Reports are sent only from a list of our own hosts"). The `false` rows
-// are the point of the table: `localhost`, someone else's Vercel project
-// with a similar name, a subdomain we do not use, and a look-alike domain.
+// are the point of the table: `localhost`, our own Vercel previews (Sentry's
+// Allowed Domains setting cannot name them, so the app does not send from
+// them: FINDINGS.md, "Previews report nothing"), someone else's Vercel
+// project with a similar name, a subdomain we do not use, and a look-alike
+// domain.
 // Each row also checks that the SDK's `enabled` option gives the same
 // answer. A new domain reports nothing until it is added to the list
 // (FINDINGS.md, "A new domain reports nothing until it is listed").
@@ -159,8 +163,8 @@ describe('reportsFrom', () => {
     ['oktuner.com', true],
     ['ok-tuner.vercel.app', true],
     ['ok-tuner-lightning-jar.vercel.app', true],
-    ['ok-tuner-git-feat-x-lightning-jar.vercel.app', true],
-    ['ok-tuner-88kx3anqq-lightning-jar.vercel.app', true],
+    ['ok-tuner-git-feat-x-lightning-jar.vercel.app', false],
+    ['ok-tuner-88kx3anqq-lightning-jar.vercel.app', false],
     ['ok-tuner.bench.lj.dev', true],
     ['localhost', false],
     ['ok-tuner-fork-someone.vercel.app', false],

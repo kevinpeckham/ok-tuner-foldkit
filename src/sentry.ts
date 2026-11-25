@@ -78,22 +78,19 @@ const PRODUCTION_HOSTNAMES: ReadonlyArray<string> = [
   'ok-tuner-lightning-jar.vercel.app',
 ]
 
-// Any other address ending like this is a Vercel deployment that is not the
-// live site, which `environmentOf` tags `preview`.
-const VERCEL_HOSTNAME_SUFFIX = '.vercel.app'
-
-// The three constants below describe the other hosts that are ours: this
-// project's Vercel previews, whose addresses have the form
-// `ok-tuner-<something>-lightning-jar.vercel.app`, and the project's own dev
-// server (AGENTS.md, "Dev server on the lj-bench VM"). `reportsFrom` uses
-// them.
+// The one other host that is ours and reports: the project's own dev server
+// (AGENTS.md, "Dev server on the lj-bench VM"). `reportsFrom` uses it.
+//
+// This project's Vercel previews are ours too, and report nothing. Their
+// addresses have the form `ok-tuner-<something>-lightning-jar.vercel.app`,
+// and the Sentry project's Allowed Domains setting has no pattern narrow
+// enough to accept them, so Sentry would drop whatever they sent
+// (FINDINGS.md, "Previews report nothing").
 //
 // NOTE: the repository is public, so a copy of this app can run anywhere: a
 // fork on someone else's Vercel account, or `bun run dev` on any machine.
 // Reports are sent only from the hosts above and below. A new domain must be
 // added to PRODUCTION_HOSTNAMES, or the site on it will report nothing.
-const OUR_PREVIEW_PREFIX = 'ok-tuner-'
-const OUR_PREVIEW_SUFFIX = '-lightning-jar.vercel.app'
 const OUR_DEVELOPMENT_HOSTNAME = 'ok-tuner.bench.lj.dev'
 
 // An integration is a plug-in of the SDK, and each one has a `name`. This is
@@ -123,54 +120,40 @@ const NORMALIZE_DEPTH = 10
 
 // ENVIRONMENT
 
-// The three values of the `environment` tag on a report. The tag is what
-// keeps reports from the live site, from previews and from development apart
-// in Sentry.
-export type SentryEnvironment = 'production' | 'preview' | 'development'
+// The two values of the `environment` tag on a report. The tag is what
+// keeps reports from the live site and from development apart in Sentry.
+export type SentryEnvironment = 'production' | 'development'
 
 // Why the hostname: nothing under `src` reads an environment variable, so
 // the hostname is all the browser has to go on.
 //
-// The order of the tests matters. Two of the production hostnames end in
-// `.vercel.app`, so the production list is checked first.
-//
-// `String.endsWith(suffix)` is Effect's version: it returns a function that
-// tests a string, hence the two pairs of brackets.
-//
-// Both `localhost` and the dev server come out as `development`. Whether a
-// host reports at all is a separate question, answered by `reportsFrom`.
-//
-// A known cost: the production build reached at a deployment's own Vercel
-// address is tagged `preview` (FINDINGS.md, "The environment tag comes from
-// the hostname").
+// Every host that is not the live site comes out as `development`:
+// `localhost`, the dev server, a Vercel preview. Whether a host reports at
+// all is a separate question, answered by `reportsFrom`. Of the
+// `development` hosts only the dev server does, so in Sentry `development`
+// means the dev server.
 /** The browser has only its hostname to say which deployment it is running. */
-export const environmentOf = (hostname: string): SentryEnvironment => {
-  if (PRODUCTION_HOSTNAMES.includes(hostname)) {
-    return 'production'
-  } else if (String.endsWith(VERCEL_HOSTNAME_SUFFIX)(hostname)) {
-    return 'preview'
-  } else {
-    return 'development'
-  }
-}
+export const environmentOf = (hostname: string): SentryEnvironment =>
+  PRODUCTION_HOSTNAMES.includes(hostname) ? 'production' : 'development'
 
 // The gate. `sentryOptions` passes the answer to the SDK as `enabled`, and
-// with `enabled: false` the SDK sends nothing. Three kinds of host pass:
+// with `enabled: false` the SDK sends nothing. Two kinds of host pass:
 //   - the production hostnames;
-//   - the dev server;
-//   - this project's own Vercel previews, recognised by both ends of the
-//     hostname. Any other `*.vercel.app`, such as a fork deployed from
-//     someone else's Vercel account, does not pass.
-// `localhost` does not pass either. So `bun run dev` on any machine reports
-// nothing, and neither do the tests, which run on `localhost`. A proof in
-// development has to use the dev server's own address (FINDINGS.md, "Reports
-// are sent only from a list of our own hosts").
+//   - the dev server.
+// Nothing else does. `localhost` does not, so `bun run dev` on any machine
+// reports nothing, and neither do the tests, which run on `localhost`. A
+// proof in development has to use the dev server's own address. A Vercel
+// preview does not, whether it is ours or a fork deployed from someone
+// else's account (FINDINGS.md, "Reports are sent only from a list of our own
+// hosts").
+//
+// The list has a twin outside the code: the Allowed Domains setting of the
+// Sentry project, which makes Sentry drop a report from any other origin.
+// Keep the two the same (FINDINGS.md, "Sentry's Allowed Domains").
 /** Whether this hostname is one of ours, and so reports to Sentry. */
 export const reportsFrom = (hostname: string): boolean =>
   PRODUCTION_HOSTNAMES.includes(hostname) ||
-  hostname === OUR_DEVELOPMENT_HOSTNAME ||
-  (String.startsWith(OUR_PREVIEW_PREFIX)(hostname) &&
-    String.endsWith(OUR_PREVIEW_SUFFIX)(hostname))
+  hostname === OUR_DEVELOPMENT_HOSTNAME
 
 // OPTIONS
 
