@@ -2,8 +2,8 @@
 //
 // What this file is. The site is prerendered: the build runs the app once
 // for each page and writes what it draws to a file (`index.html`,
-// `how-to/index.html`), so a visitor's browser shows the page before any
-// script has run. This file is what the build runs to do it. Nothing here
+// `how-to/index.html`, and `404.html` for an address the site does not
+// have), so a visitor's browser shows the page before any script has run. This file is what the build runs to do it. Nothing here
 // runs in the browser, and there is no server at run time: Vercel serves
 // the files it was given.
 //
@@ -47,18 +47,43 @@ import { init } from './main'
 import { howToRouter, tunerRouter } from './route'
 import { view } from './view'
 
-// The pages to write as files, by path. The paths come from the routers in
-// src/route.ts, so a path is still spelled in one place only. The not-found
-// page is not listed: it has no address of its own (public/404.html is what
-// an unknown address gets).
+// The site's pages, by path. The paths come from the routers in
+// src/route.ts, so a path is still spelled in one place only.
 //
 // A page added to src/route.ts must be added here too. Nothing checks that:
 // leave it out and the build writes no file for it, and opening its address
 // directly is a 404 (AGENTS.md, "Pages").
+/** The paths of the site's pages. */
+export const pagePaths: ReadonlyArray<string> = [tunerRouter(), howToRouter()]
+
+// The path the not-found page is drawn at.
+//
+// A static host answers an address that has no file with status 404, and
+// Vercel sends a file named `404.html` with it, if the output has one. That
+// page should look like the rest of the site, so the app draws it: no route
+// matches this path, so `urlToAppRoute` gives the NotFound route, and the
+// build writes the not-found view (src/page/notFound.ts) like any page.
+//
+// One step is left over. The plugin writes every path as a folder holding
+// an `index.html`, so this one becomes `404/index.html`, which is not the
+// name Vercel looks for. The build command in package.json moves it:
+//
+//   vite build && mv dist/client/404/index.html dist/client/404.html
+//             && rmdir dist/client/404
+//
+// If the path here changes, change it there too. A build that did not write
+// the file fails at the `mv`, which is the intention: no build ships
+// without its 404 page (FINDINGS.md, "The 404 page is prerendered, then
+// moved").
+/** Where the build draws the page for an address the site does not have. */
+export const NOT_FOUND_PATH = '/404'
+
+// Everything the build writes as an HTML file. The plugin looks for an
+// export with this name.
 /** The paths the build writes as HTML files. */
 export const prerenderPaths: ReadonlyArray<string> = [
-  tunerRouter(),
-  howToRouter(),
+  ...pagePaths,
+  NOT_FOUND_PATH,
 ]
 
 // What every page carries in its `<head>` besides what Foldkit puts there.

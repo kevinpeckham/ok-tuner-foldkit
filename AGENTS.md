@@ -35,7 +35,8 @@ The build writes each page as an HTML file (`src/entry.server.ts`), and the brow
 
 - `init` and `view` run in Node during the build. Keep them free of `window`, `document` and `localStorage`, and keep the first Model the same for every visitor: anything read from the browser arrives by a Command, as the saved preferences do.
 - Foldkit marks server rendering experimental. After a Foldkit upgrade, run `SKIP_VARLOCK=1 bun run build`, check that both pages are generated and that `dist/client/how-to/index.html` holds the how-to text, then `bun run preview` and click through before anything else. Open `/how-to/` with the trailing slash: Vite's preview answers `/how-to` with the tuner's file, and the browser quietly rebuilds a page that does not match.
-- Head tags go in `DOCUMENT_HEAD` in `src/entry.server.ts`, and by hand in `public/404.html`, which is not part of the app.
+- Head tags go in `DOCUMENT_HEAD` in `src/entry.server.ts`.
+- The 404 page is the app's not-found page, drawn at `NOT_FOUND_PATH` and moved to `dist/client/404.html` by the `build` script in `package.json`. Keep that page the same for every address: it is one file served for all of them.
 - `renderPage` needs a build id that only a real build has. Tests call `renderApplication` with an id of their own (`src/entry.server.test.ts`).
 
 ### Findings
@@ -70,4 +71,4 @@ The build writes each page as an HTML file (`src/entry.server.ts`), and the brow
 The full list is [`docs/backlog.md`](./docs/backlog.md). Everything there is planned, not forgotten. Do not add an item as a side effect of other work. The ones most likely to be added by accident:
 
 - Starting to listen when the pointer enters the page.
-- Search-engine work, if the tuner goes public. Until then `vercel.json`, `src/entry.server.ts` and `public/404.html` all say `noindex`.
+- Search-engine work, if the tuner goes public. Until then `vercel.json` and `src/entry.server.ts` both say `noindex`.

@@ -17,6 +17,8 @@ import { describe, expect, test } from 'vitest'
 
 import {
   DOCUMENT_HEAD,
+  NOT_FOUND_PATH,
+  pagePaths,
   prerenderPaths,
   renderApplication,
   renderDocument,
@@ -41,17 +43,58 @@ const documentAt = async (path: string): Promise<string> =>
   )
 
 describe('prerenderPaths', () => {
-  // The build writes one HTML file for each of these. The not-found page is
-  // not among them: it has no address of its own.
-  test('lists the tuner and the how-to page', () => {
-    expect(prerenderPaths).toEqual(['/', '/how-to'])
+  // The build writes one HTML file for each of these: the two pages, and
+  // the page for an address the site does not have, which the build command
+  // then moves to where Vercel looks for it (FINDINGS.md, "The 404 page is
+  // prerendered, then moved").
+  test('lists the two pages and the not-found page', () => {
+    expect(pagePaths).toEqual(['/', '/how-to'])
+    expect(NOT_FOUND_PATH).toBe('/404')
+    expect(prerenderPaths).toEqual(['/', '/how-to', '/404'])
   })
 
-  // The guard against a path that is listed but matches no route: the build
-  // would write the app's not-found page to a file and serve it with status
-  // 200.
-  test.each(prerenderPaths)('%s renders a page of its own', async path => {
+  // The guard against a page path that matches no route: the build would
+  // write the app's not-found page to that page's file and serve it with
+  // status 200.
+  test.each(pagePaths)('%s renders a page of its own', async path => {
     expect(await documentAt(path)).not.toContain('Page not found')
+  })
+})
+
+// The page Vercel sends, with status 404, for any address that has no file.
+// It is drawn by the app like the others, so it has the same head, the same
+// stylesheet and the same script, and a browser takes it over.
+describe('the not-found page, as the build writes it', () => {
+  test('has its title, says so, and links to the tuner', async () => {
+    const html = await documentAt(NOT_FOUND_PATH)
+
+    expect(html).toContain('<title>Page not found | OK Tuner</title>')
+    expect(html).toContain('Page not found')
+    expect(html).toContain('There is no page at this address.')
+    expect(html).toContain('Back to the tuner')
+    expect(html).toContain('href="/"')
+    expect(html).not.toContain('On / Off')
+  })
+
+  // The file is drawn once, at the path above, and served for every unknown
+  // address. If the page printed the path, each visitor would be shown
+  // "/404" until the script ran and corrected it. So it prints none, and
+  // the page is the same whatever address it is drawn for: the browser's
+  // drawing matches the file's exactly.
+  test('is the same for any address', async () => {
+    const built = await documentAt(NOT_FOUND_PATH)
+    const elsewhere = await documentAt('/somewhere/else')
+
+    expect(built).not.toContain('/404')
+    expect(elsewhere).toBe(built)
+  })
+
+  test('carries the same head as every page', async () => {
+    const html = await documentAt(NOT_FOUND_PATH)
+
+    expect(html).toContain(DOCUMENT_HEAD)
+    expect(html).toContain('href="/assets/app-test.css"')
+    expect(html).toContain('src="/assets/app-test.js"')
   })
 })
 

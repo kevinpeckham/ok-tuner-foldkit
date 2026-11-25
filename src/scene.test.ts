@@ -627,14 +627,17 @@ describe('pages', () => {
     )
   })
 
-  // An address no route matches still draws a page, which names the path
-  // that was asked for.
+  // An address no route matches still draws a page. It does not print the
+  // path that was asked for: the build draws this page once and it is
+  // served for every unknown address, so it has to be the same for all of
+  // them (src/page/notFound.ts).
   test('an unknown address says so and links back', () => {
     scene(
       { update, view },
       given(onRoute(AppRoute.NotFound({ path: '/nope' }))),
       expect(role('heading', { name: 'Page not found' })).toExist(),
-      expect(text(/\/nope/)).toExist(),
+      expect(text('There is no page at this address.')).toExist(),
+      expect(text(/\/nope/)).toBeAbsent(),
       expect(backLink).toHaveAttr('href', '/'),
       expect(powerButton).toBeAbsent(),
     )

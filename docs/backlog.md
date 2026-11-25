@@ -67,7 +67,6 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 - **Leaving while the browser is still asking for the microphone.** If permission is then granted, the microphone opens and closes at once, and the browser's indicator may blink on a page with no tuner. Coming back and pressing On / Off during that time shows "starting" without asking again until the first request settles.
 - **`/index.html` and `/how-to/index.html` show their page, then "Page not found".** Vercel serves the file at that address, and the app then finds it has no route for the path and replaces the page. Add the paths to the routers, or redirect them.
 - **The script is downloaded again after every deploy,** because its name carries a build id that is random per build. A fixed build id per commit, if Foldkit's plugin takes one, would let an unchanged script stay cached.
-- **The not-found page prints the path as the address has it.** `/café` reads `/caf%C3%A9`, and a very long path widens the page on a phone. Decode it and let it wrap.
 - **The title is tested as `pageTitle`, not as what `view` returns.** A `view` that ignored `pageTitle` would pass every test.
 - **No automated test clicks through.** Nothing covers the `routing` option in `entry.ts` or what the two navigation Commands do when run. The check is by hand in headless Chrome.
 - **Every page's first heading is "OK Tuner".** The page's own name is the second. Whether the page name should be the first is a design choice.
@@ -87,6 +86,6 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 ## Going public
 
 - **Vercel Analytics.** Integrate it. It counts visits without cookies, but it does send every visit to Vercel, so decide it together with the "ad-free, ad-tracker-free" wording and allow its origin in the Content Security Policy.
-- **Make the page crawlable.** Remove `noindex` from `vercel.json`, from `DOCUMENT_HEAD` in `src/entry.server.ts` and from `public/404.html`. The pages are already prerendered, so crawlers get content without running JavaScript. Give each page a canonical address while there.
+- **Make the page crawlable.** Remove `noindex` from `vercel.json` and from `DOCUMENT_HEAD` in `src/entry.server.ts`. (The 404 page can keep it: add it back for that page alone.) The pages are already prerendered, so crawlers get content without running JavaScript. Give each page a canonical address while there.
 - **Open Graph:** title, description and a share image.
 - **Content Security Policy** and the other security headers, in `vercel.json`. The one third-party origin to allow is Sentry's ingest host, `https://o4505247956860928.ingest.us.sentry.io`, so the policy can be strict.
