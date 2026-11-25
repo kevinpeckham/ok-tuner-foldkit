@@ -9,7 +9,13 @@ import { Option } from 'effect'
 import { fromString } from 'foldkit/url'
 import { describe, expect, test } from 'vitest'
 
-import { AppRoute, howToRouter, tunerRouter, urlToAppRoute } from './route'
+import {
+  AppRoute,
+  builtWithRouter,
+  howToRouter,
+  tunerRouter,
+  urlToAppRoute,
+} from './route'
 
 // `fromString` returns an Option, because a string may not be an address at
 // all. Every string in this file is one, so the helper unwraps it and throws
@@ -26,6 +32,7 @@ describe('the routers', () => {
   test('build the path of each page', () => {
     expect(tunerRouter()).toBe('/')
     expect(howToRouter()).toBe('/how-to')
+    expect(builtWithRouter()).toBe('/built-with')
   })
 })
 
@@ -46,6 +53,13 @@ describe('urlToAppRoute', () => {
   ])('%s is the how-to page', raw => {
     expect(urlToAppRoute(urlOf(raw))).toStrictEqual(AppRoute.HowTo())
   })
+
+  test.each(['http://localhost/built-with', 'http://localhost/built-with/'])(
+    '%s is the built-with page',
+    raw => {
+      expect(urlToAppRoute(urlOf(raw))).toStrictEqual(AppRoute.BuiltWith())
+    },
+  )
 
   // Anything else is NotFound, which carries the path so the page can say
   // what was asked for. A longer path is not the how-to page, and neither is

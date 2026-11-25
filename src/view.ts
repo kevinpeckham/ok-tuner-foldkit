@@ -125,6 +125,10 @@ import {
 //     `h.submodel`. See `tuningPickerView` and `settingsMenuView`.
 import { Button, Input, Meter, Popover } from '@foldkit/ui'
 
+// The other two pages. Each file exports a function called `view`, so they
+// are imported as namespaces: `HowTo.view(h)`.
+// The footer, drawn under every page.
+import * as Footer from './footer'
 // The four icons. Each is a function from a class name to an inline SVG.
 import * as Icon from './icon'
 // From main.ts: the `Model` this file reads, the `Message` constructors it
@@ -142,8 +146,7 @@ import {
 // Turns the kind of microphone failure held in the Model into the sentence
 // shown to the person.
 import { failureSentence } from './microphone'
-// The other two pages. Each file exports a function called `view`, so they
-// are imported as namespaces: `HowTo.view(h)`.
+import * as BuiltWith from './page/builtWith'
 import * as HowTo from './page/howTo'
 import { pageHeadingAttributes, textLink } from './page/link'
 import * as NotFound from './page/notFound'
@@ -339,7 +342,7 @@ const needleLeft = (needleCents: number): string => {
 //   title  the runtime writes it to `document.title` after a render, if it
 //          differs from the title showing. Here it changes with the page
 //          (`pageTitle` below).
-//   body   the Html of the page. Its root element, the <main>, is the
+//   body   the Html of the page. Its root element, the outer <div>, is the
 //          app's root in the document: the build writes it into the HTML
 //          file, and the runtime patches it where it stands.
 //
@@ -361,48 +364,64 @@ export const pageTitle = (route: AppRoute): string =>
   AppRoute.match(route, {
     Tuner: () => 'OK Tuner | Chromatic Instrument Tuner',
     HowTo: () => 'How to use the tuner | OK Tuner',
+    BuiltWith: () => 'Built with | OK Tuner',
     NotFound: () => 'Page not found | OK Tuner',
   })
 
 // The body: a dark page ground (`bg-oxford-dark`, a colour defined in
-// styles.css), and one centred column, at most 600px wide, holding the
-// heading and then the page the route names. The ground, the column and the
-// heading are the same on every page, so they are drawn here once.
+// styles.css) holding two things, one above the other. The `<main>` is one
+// centred column, at most 600px wide, with the heading and then the page
+// the route names. The footer comes after it, outside the `<main>`, which
+// is what makes it a landmark of its own (src/footer.ts). The ground, the
+// column, the heading and the footer are the same on every page, so they
+// are drawn here once.
+//
+// The outer `<div>` is a column as tall as the window (`flex min-h-screen
+// flex-col`), and the `<main>` takes whatever height the footer leaves
+// (`flex-1`), so the footer sits at the bottom of a short page.
 //
 // Composition is a function call. There are no components to register and
 // no props objects: a page, or a part of one, is a function that returns
 // Html, given what it needs and the builder. `tunerPageView` needs the
-// Model, and `HowTo.view` and `NotFound.view` need nothing but the builder.
+// Model, and the other pages and the footer need nothing but the builder.
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
   title: pageTitle(model.route),
-  body: h.main(
-    [h.Class('min-h-screen bg-oxford-dark px-6 py-12 text-slate-100')],
+  body: h.div(
+    [h.Class('flex min-h-screen flex-col bg-oxford-dark text-slate-100')],
     [
-      h.div(
-        [h.Class('mx-auto w-full max-w-[600px]')],
+      h.main(
+        [h.Class('flex-1 px-6 py-12')],
         [
-          // The site's name. On the tuner's page it is also the heading
-          // that names the page, so there it takes the attributes that let
-          // focus move to it when the page appears (src/page/link.ts). The
-          // other two pages mark a heading of their own.
-          h.h1(
+          h.div(
+            [h.Class('mx-auto w-full max-w-[600px]')],
             [
-              ...AppRoute.match(model.route, {
-                Tuner: () => pageHeadingAttributes(h),
-                HowTo: () => [],
-                NotFound: () => [],
+              // The site's name. On the tuner's page it is also the heading
+              // that names the page, so there it takes the attributes that let
+              // focus move to it when the page appears (src/page/link.ts). The
+              // other pages mark a heading of their own.
+              h.h1(
+                [
+                  ...AppRoute.match(model.route, {
+                    Tuner: () => pageHeadingAttributes(h),
+                    HowTo: () => [],
+                    BuiltWith: () => [],
+                    NotFound: () => [],
+                  }),
+                  h.Class('font-serif text-3xl outline-none'),
+                ],
+                ['OK Tuner'],
+              ),
+              AppRoute.match(model.route, {
+                Tuner: () => tunerPageView(model, h),
+                HowTo: () => HowTo.view(h),
+                BuiltWith: () => BuiltWith.view(h),
+                NotFound: () => NotFound.view(h),
               }),
-              h.Class('font-serif text-3xl outline-none'),
             ],
-            ['OK Tuner'],
           ),
-          AppRoute.match(model.route, {
-            Tuner: () => tunerPageView(model, h),
-            HowTo: () => HowTo.view(h),
-            NotFound: () => NotFound.view(h),
-          }),
         ],
       ),
+      Footer.view(h),
     ],
   ),
 })

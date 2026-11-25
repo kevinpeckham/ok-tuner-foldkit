@@ -22,6 +22,9 @@
     // without a file extension (`./pitch`), and the entry points a package
     // declares (`foldkit/schema`, `effect/persistence`).
     "moduleResolution": "bundler",
+    // Lets a `.json` file be imported, with the shape of its contents as its
+    // type. `src/site.ts` reads the version from package.json this way.
+    "resolveJsonModule": true,
     // All of TypeScript's strict checks.
     "strict": true,
     // Reading an element by index gives `T | undefined`, not `T`, because

@@ -44,7 +44,7 @@ import { Server } from 'foldkit/experimental'
 // imported, because the build sends no Messages. It renders the first Model
 // and stops.
 import { init } from './main'
-import { howToRouter, tunerRouter } from './route'
+import { builtWithRouter, howToRouter, tunerRouter } from './route'
 import { view } from './view'
 
 // The site's pages, by path. The paths come from the routers in
@@ -54,7 +54,11 @@ import { view } from './view'
 // leave it out and the build writes no file for it, and opening its address
 // directly is a 404 (AGENTS.md, "Pages").
 /** The paths of the site's pages. */
-export const pagePaths: ReadonlyArray<string> = [tunerRouter(), howToRouter()]
+export const pagePaths: ReadonlyArray<string> = [
+  tunerRouter(),
+  howToRouter(),
+  builtWithRouter(),
+]
 
 // The path the not-found page is drawn at.
 //

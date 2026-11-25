@@ -862,6 +862,7 @@ const enterRoute = (model: Model, nextRoute: AppRoute): Model =>
       AppRoute.match(nextRoute, {
         Tuner: () => tuner,
         HowTo: () => TunerState.Off(),
+        BuiltWith: () => TunerState.Off(),
         NotFound: () => TunerState.Off(),
       }),
   })

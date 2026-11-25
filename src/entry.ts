@@ -101,7 +101,7 @@ const application = Runtime.makeApplication({
   },
   // The element an app started with `Runtime.run` is rendered into. This
   // app is not: the build drew it into the HTML, and marked its root, the
-  // <main>, for the runtime to find. So there is no element with this id,
+  // outer <div>, for the runtime to find. So there is no element with this id,
   // the call returns null, and Foldkit uses the root it found. The option
   // is required all the same, and Foldkit's own prerendered example passes
   // it this way.
