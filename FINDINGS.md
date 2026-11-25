@@ -395,7 +395,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ### Comments in a hand-written HTML file are served (2026-11-24, build)
 
-- **What happens.** Vite does not strip HTML comments. While the project had an `index.html`, its teaching comments took the built file from 0.7 kB to 3.4 kB and were readable in the page source. Since 2026-11-25 the pages are written by the build and carry no comments, and the one hand-written file is `public/404.html`, whose comment is served the same way. Comments in TypeScript and CSS are removed by the build.
+- **What happens.** Vite does not strip HTML comments. While the project had an `index.html`, its teaching comments took the built file from 0.7 kB to 3.4 kB and were readable in the page source. Since 2026-11-25 every page is written by the build and carries no comments. Comments in TypeScript and CSS are removed by the build.
 
 ### The lint and TypeScript configuration files carry comments (2026-11-24, tooling)
 
@@ -408,17 +408,21 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **What was seen.** On production and on a preview, the address of the script's source map answered 403 with an empty body. So did a made-up `.map` name under `/assets/`, while a made-up `.js` name answered 404.
 - **What it means.** A 403 there says nothing about whether the file exists. The proof that no map is deployed is the build: the Sentry plugin deletes the browser bundle's maps after uploading them, and the Node bundle gets none. What blocks the request was not looked into.
 
-### The 404 page is written by hand (2026-11-25, Vercel)
+### The 404 page is prerendered, then moved (2026-11-25, Vercel)
 
-- **Why.** With the pages prerendered, an address with no file is a real 404, and Vercel sends `404.html` with it if the output has one. Foldkit's prerender cannot write that file: asked for the path `/404.html`, it writes a folder of that name holding an `index.html`. Tried in the spike.
-- **What was done.** `public/404.html` is a small page with no script and its styles inline, since it cannot know the hashed names of the built files. Its colours are copied from `src/styles.css`, so a change to the look of the site has to be made there too.
-- **Before this.** For one day the app was client-rendered with routing, and `vercel.json` rewrote every path that was not a file to `index.html`. An unknown address was answered 200 and the app drew its own "Page not found": a "soft 404". The app's own not-found page still exists, for an address reached without a page load and for development.
-- **Where.** `public/404.html`; `src/page/notFound.ts`.
+- **Why.** With the pages prerendered, an address with no file is a real 404, and Vercel sends `404.html` with it if the output has one. That page should look like the rest of the site and share its stylesheet.
+- **The obstacle.** Foldkit's prerender writes every path as a folder holding an `index.html`. Asked for `/404.html` it writes a folder of that name, which Vercel does not use.
+- **What was done.** The build draws the app's own not-found page at the path `/404`, which no route matches, and the build command then moves `404/index.html` to `404.html`. A build that wrote no such file fails at the move.
+- **The page prints no path.** The one file is served for every unknown address. A page that printed the path would show "/404" until the script had run, and would not match the browser's own drawing. In headless Chrome, at an unknown address, all seven elements of the page were kept when the script took over.
+- **First version.** For a few hours the page was a hand-written `public/404.html` with its styles inline, because a hand-written file cannot know the hashed name of the stylesheet. Kevin asked for it to share the site's styles, which is what prerendering it gives.
+- **Before prerendering.** The app was client-rendered with routing for a day, and `vercel.json` rewrote every path that was not a file to `index.html`. An unknown address was answered 200: a "soft 404".
+- **Checking it locally.** Vite's preview does not serve `404.html` for a missing file. A static server that does is a dozen lines of Bun.
+- **Where.** `NOT_FOUND_PATH` in `src/entry.server.ts`; the `build` script in `package.json`; `src/page/notFound.ts`.
 
 ### `oktuner.com` redirects to `www.oktuner.com` (2026-11-24, Vercel)
 
 - **What happens.** The bare domain answers with a 308 to `www`. The app never runs on the bare domain, but both are in the production host list in case the redirect is ever turned round.
-- **Still `noindex`.** Both `vercel.json` (a header on every response) and the head of every page (a meta tag: `DOCUMENT_HEAD` in `src/entry.server.ts`, and `public/404.html`) say so. Making the site crawlable means changing both. In the backlog.
+- **Still `noindex`.** Both `vercel.json` (a header on every response) and the head of every page (a meta tag: `DOCUMENT_HEAD` in `src/entry.server.ts`) say so. Making the site crawlable means changing both. In the backlog.
 
 ### A new project's first deployment becomes production (2026-11-24, Vercel)
 

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && mv dist/client/404/index.html dist/client/404.html && rmdir dist/client/404",
     "preview": "vite preview --outDir dist/client",
     "typecheck": "tsc --noEmit",
     "format": "oxfmt",

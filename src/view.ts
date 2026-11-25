@@ -371,9 +371,8 @@ export const pageTitle = (route: AppRoute): string =>
 //
 // Composition is a function call. There are no components to register and
 // no props objects: a page, or a part of one, is a function that returns
-// Html, given what it needs and the builder. `NotFound.view` needs the path
-// from its route, `tunerPageView` needs the Model, and `HowTo.view` needs
-// nothing but the builder.
+// Html, given what it needs and the builder. `tunerPageView` needs the
+// Model, and `HowTo.view` and `NotFound.view` need nothing but the builder.
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
   title: pageTitle(model.route),
   body: h.main(
@@ -400,7 +399,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
           AppRoute.match(model.route, {
             Tuner: () => tunerPageView(model, h),
             HowTo: () => HowTo.view(h),
-            NotFound: ({ path }) => NotFound.view(path, h),
+            NotFound: () => NotFound.view(h),
           }),
         ],
       ),

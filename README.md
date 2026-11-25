@@ -27,7 +27,7 @@ The source is commented for someone learning Foldkit: each file opens with what 
 4. `src/view.ts`, then `src/page/`: how the Model becomes the page, and how the page sends Messages.
 5. `src/story.test.ts` and `src/scene.test.ts`: how `update` and the view are tested.
 6. `src/microphone.ts`, `src/pitch.ts`, `src/tuning.ts`, `src/preferences.ts`, `src/sentry.ts`: the parts Foldkit calls into.
-7. `vite.config.ts`, `.env.schema`, `public/404.html`: the build.
+7. `vite.config.ts`, `.env.schema`: the build.
 
 [`FOLDKIT.md`](./FOLDKIT.md) is Foldkit's own guide to the architecture and its conventions.
 
@@ -74,4 +74,4 @@ Reports are sent only from the project's own hosts, listed in `src/sentry.ts`, a
 
 ## Deployment
 
-The site is prerendered: a build writes each page as an HTML file, and Vercel serves the files in `dist/client` with the settings in `vercel.json`. There is no server at run time. Pull requests get a preview, `main` is production. An address with no file is a 404, answered with `public/404.html`. The Vercel project holds only `OP_TOKEN` and `OP_ENV_ID`. Each build uploads the browser bundle's source maps to Sentry and removes them from the output; a build without the token fails. Every response carries `X-Robots-Tag: noindex` until the tuner is made public.
+The site is prerendered: a build writes each page as an HTML file, and Vercel serves the files in `dist/client` with the settings in `vercel.json`. There is no server at run time. Pull requests get a preview, `main` is production. An address with no file is a 404, answered with `404.html`: the app's own not-found page, drawn by the build like the others. The Vercel project holds only `OP_TOKEN` and `OP_ENV_ID`. Each build uploads the browser bundle's source maps to Sentry and removes them from the output; a build without the token fails. Every response carries `X-Robots-Tag: noindex` until the tuner is made public.

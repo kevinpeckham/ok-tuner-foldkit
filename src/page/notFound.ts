@@ -8,14 +8,19 @@
 // Like the how-to page, this one is static: a view function and nothing
 // more.
 //
-// NOTE: on the live site, opening an unknown address does not reach this
-// page. The site is prerendered, an address with no file is a 404, and
-// Vercel answers with public/404.html, a page written by hand that says the
-// same thing. This view is what shows when the app itself arrives at an
-// address it does not have, without a page load, and in development, where
-// the dev server renders every address through the app. It also shows for
-// an address that is a file but not a route, such as `/index.html`: the
-// file's page appears, then this one replaces it (docs/backlog.md).
+// On the live site this is also the 404 page. The site is prerendered, and
+// the build draws this view once and writes it to `404.html`
+// (src/entry.server.ts, `NOT_FOUND_PATH`). An address with no file gets
+// status 404, and Vercel sends that file with it. The browser then takes
+// the page over like any other, so the link below changes page without a
+// page load.
+//
+// NOTE: the page does not say which address was asked for, although the
+// route carries it. The one file is served for every unknown address, and
+// the build drew it for the address `/404`. A page that printed the path
+// would show every visitor "/404" until the script had run and corrected
+// it, and the browser would find a page that does not match its own
+// drawing. A page that is the same for every address matches exactly.
 import { type Html, type HtmlBuilder } from 'foldkit/html'
 
 import { type Message } from '../main'
@@ -24,11 +29,10 @@ import { pageHeadingAttributes, textLink } from './link'
 
 // VIEW
 
-// `path` is the `path` field of the NotFound route. A string child becomes a
-// text node, so the path is shown as text and is never read as markup,
-// whatever characters the address held.
+// The page takes only the builder, like the how-to page: it shows nothing
+// that depends on the address (see the NOTE above).
 /** The page shown for an address no route matches. */
-export const view = (path: string, h: HtmlBuilder<Message>): Html =>
+export const view = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [],
     [
@@ -41,7 +45,10 @@ export const view = (path: string, h: HtmlBuilder<Message>): Html =>
         ],
         ['Page not found'],
       ),
-      h.p([h.Class('mt-3 text-slate-200')], [`There is no page at ${path}.`]),
+      h.p(
+        [h.Class('mt-3 text-slate-200')],
+        ['There is no page at this address.'],
+      ),
       h.p([h.Class('mt-6')], [textLink(tunerRouter(), 'Back to the tuner', h)]),
     ],
   )
