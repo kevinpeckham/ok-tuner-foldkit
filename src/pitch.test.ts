@@ -17,6 +17,7 @@
 import { Option } from 'effect'
 import { describe, expect, test } from 'vitest'
 
+import { WINDOW } from './microphone'
 import {
   detectPitch,
   frequencyOfMidi,
@@ -26,6 +27,7 @@ import {
   noteLabel,
   noteName,
 } from './pitch'
+import { TUNINGS } from './tuning'
 
 // Samples per second: the rate the app asks the microphone for.
 const RATE = 48000
@@ -91,6 +93,31 @@ describe('detectPitch', () => {
   })
 
   // A buffer of zeros. `Option.isNone` is true when the Option is empty.
+  // The lowest string the app lists is the low B of a five-string bass,
+  // 30.87 Hz. One period of it is longer than the default 0.05 s tone holds
+  // twice over, so these tones are as long as the app's real window:
+  // `WINDOW` samples (src/microphone.ts). The second is the same string a
+  // good half-semitone flat, which is where someone tuning up starts.
+  test('the low B of a five-string bass reads, in tune and flat', () => {
+    const windowSeconds = WINDOW / RATE
+
+    expect(centsOff(tone(30.87, windowSeconds), 30.87)).toBeLessThan(3)
+    expect(centsOff(tone(30.0, windowSeconds), 30.0)).toBeLessThan(3)
+  })
+
+  // Every string of every tuning in the list, at the app's window length.
+  // The guard against a tuning being added whose strings the detector
+  // cannot hear.
+  test.each(
+    TUNINGS.flatMap(tuning =>
+      tuning.notes.map(midi => [tuning.label, midi] as const),
+    ),
+  )('%s, MIDI note %i, reads within three cents', (_label, midi) => {
+    const hz = frequencyOfMidi(midi)
+
+    expect(centsOff(tone(hz, WINDOW / RATE), hz)).toBeLessThan(3)
+  })
+
   test('silence reads as nothing', () => {
     expect(Option.isNone(detectPitch(new Float32Array(2048), RATE))).toBe(true)
   })

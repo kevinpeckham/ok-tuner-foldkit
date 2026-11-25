@@ -391,7 +391,7 @@ describe('reportMicrophoneProblem', () => {
     const { sent, events } = startRecording()
 
     reportMicrophoneProblem({
-      name: 'NotReadableError',
+      name: 'AbortError',
       detail: 'The device is busy',
     })
     await Sentry.flush()
@@ -399,12 +399,12 @@ describe('reportMicrophoneProblem', () => {
     expect(sent).toHaveLength(1)
     expect(events).toHaveLength(1)
     const exception = events[0]?.exception?.values?.[0]
-    expect(exception?.type).toBe('Microphone failed: NotReadableError')
+    expect(exception?.type).toBe('Microphone failed: AbortError')
     expect(exception?.value).toBe('The device is busy')
     expect(exception?.stacktrace?.frames?.length).toBeGreaterThan(0)
     expect(events[0]?.level).toBe('error')
-    expect(events[0]?.tags?.['microphone_error']).toBe('NotReadableError')
-    expect(events[0]?.fingerprint).toEqual(['microphone', 'NotReadableError'])
+    expect(events[0]?.tags?.['microphone_error']).toBe('AbortError')
+    expect(events[0]?.fingerprint).toEqual(['microphone', 'AbortError'])
     expect(events[0]?.user).toBeUndefined()
   })
 
@@ -452,7 +452,7 @@ describe('reportMicrophoneProblem', () => {
 // inside it (the work the Foldkit runtime would run), and `Effect.runPromise`
 // runs that Effect and resolves with the result Message it ends in.
 describe('ReportProblem', () => {
-  const problem = { name: 'NotReadableError', detail: 'The device is busy' }
+  const problem = { name: 'AbortError', detail: 'The device is busy' }
 
   test('sends the problem and completes', async () => {
     const { events } = startRecording()
@@ -463,7 +463,7 @@ describe('ReportProblem', () => {
     expect(result).toEqual(Message.CompletedReportProblem())
     expect(events).toHaveLength(1)
     expect(events[0]?.exception?.values?.[0]?.type).toBe(
-      'Microphone failed: NotReadableError',
+      'Microphone failed: AbortError',
     )
   })
 

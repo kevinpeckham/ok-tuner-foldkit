@@ -169,7 +169,7 @@ const listening = (fields: ListeningFields = {}): Model =>
 const startingModel = withTuner(TunerState.Starting())
 // A microphone failure of the kind that is a fault, not the person's choice.
 const unexpected = (detail: string): MicrophoneFailure =>
-  MicrophoneFailure.Unexpected({ name: 'NotReadableError', detail })
+  MicrophoneFailure.Unexpected({ name: 'AbortError', detail })
 
 // A Model whose last attempt to open the microphone failed.
 const failedModel = withTuner(
@@ -472,7 +472,7 @@ describe('microphone', () => {
         // so both the name and the arguments must match. Listing the bare
         // definition, `ReportProblem`, would match on the name alone.
         Command.expectExact(
-          ReportProblem({ name: 'NotReadableError', detail: 'No microphone' }),
+          ReportProblem({ name: 'AbortError', detail: 'No microphone' }),
         ),
         // `Command.resolve(definition, resultMessage)` stands in for the
         // runtime finishing the Command. It takes the one pending
@@ -1185,6 +1185,114 @@ describe('routing', () => {
         expect(next).toEqual(listening())
       }),
       Command.expectNone(),
+    )
+  })
+})
+
+// A microphone that is missing, busy, or lost while the tuner is listening.
+// None of the three is a fault in the app, so each gets a plain sentence and
+// none is reported to Sentry (FINDINGS.md, "A missing, busy or lost
+// microphone is not a fault").
+describe('a missing, busy or lost microphone', () => {
+  test.each([
+    ['missing', MicrophoneFailure.NotFound()],
+    ['busy', MicrophoneFailure.Busy()],
+  ])('a %s microphone fails the start and is not reported', (_, failure) => {
+    story(
+      update,
+      given(startingModel),
+      message(Message.FailedAcquireMicrophone({ failure })),
+      model(next => {
+        expect(next.tuner).toEqual(TunerState.Failed({ failure }))
+      }),
+      Command.expectNone(),
+    )
+  })
+
+  // `LostMicrophone` comes from the readings Subscription, which notices
+  // that the microphone's track has ended. The tuner stops with a failure
+  // that says so. `Failed` is also a state in which the microphone is not
+  // required, so the runtime closes what is left of it.
+  test('losing the microphone while listening stops the tuner and says why', () => {
+    const lost = TunerState.Failed({ failure: MicrophoneFailure.Lost() })
+
+    story(
+      update,
+      given(listening({ level: 0.4 })),
+      message(Message.LostMicrophone()),
+      model(next => {
+        expect(next.tuner).toEqual(lost)
+        expect(
+          managedResources.microphone.modelToMaybeRequirements(next),
+        ).toEqual(Option.none())
+      }),
+      Command.expectNone(),
+    )
+  })
+
+  // The Message can only matter while listening. Anywhere else the tuner is
+  // left as it is.
+  test.each([
+    ['off', offModel],
+    ['starting', startingModel],
+    ['failed', failedModel],
+  ])('losing the microphone while %s changes nothing', (_, start) => {
+    story(
+      update,
+      given(start),
+      message(Message.LostMicrophone()),
+      model(next => {
+        expect(next).toEqual(start)
+      }),
+      Command.expectNone(),
+    )
+  })
+})
+
+// Leaving the tuner's page with the settings menu open. The menu is closed
+// on the way out, through the Popover's own `close`, so that it ends the
+// way it does when the person closes it, and the half-typed A4 is dropped.
+// Before this, the menu came back open on a tuner that was switched off.
+describe('leaving with the settings menu open', () => {
+  test('the menu is closed and the A4 text is put back', () => {
+    const opened = Popover.open(offModel.a4Popover)
+    const withOpenMenu = modifyFields(listening(), {
+      a4Popover: () => opened.model,
+      a4Input: () => '39',
+    })
+
+    story(
+      update,
+      given(withOpenMenu),
+      message(Message.ChangedUrl({ url: howToUrl })),
+      model(next => {
+        expect(next.route).toEqual(AppRoute.HowTo())
+        expect(next.tuner).toEqual(TunerState.Off())
+        expect(next.a4Popover.isOpen).toBe(false)
+        expect(next.a4Input).toBe('440')
+      }),
+      Command.expectHas(FocusPageHeading()),
+      // `resolveAllExact` fails if a Command listed here was not returned,
+      // or if one was returned that is not listed. Closing this menu
+      // returns one Command of the Popover's own, which hands focus back
+      // to the menu's button. The button is gone by the time it runs, so it
+      // finds nothing, and the page heading keeps the focus.
+      Command.resolveAllExact(
+        [FocusPageHeading, Message.CompletedFocusPageHeading()],
+        [Popover.FocusButton, Popover.Message.CompletedFocusButton()],
+      ),
+    )
+  })
+
+  // With the menu closed there is nothing to close, and the page change
+  // returns its one Command as before.
+  test('a closed menu adds nothing', () => {
+    story(
+      update,
+      given(listening()),
+      message(Message.ChangedUrl({ url: howToUrl })),
+      Command.expectExact(FocusPageHeading()),
+      Command.resolve(FocusPageHeading, Message.CompletedFocusPageHeading()),
     )
   })
 })

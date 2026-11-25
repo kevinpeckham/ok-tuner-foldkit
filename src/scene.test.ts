@@ -390,12 +390,12 @@ describe('power', () => {
       ManagedResource.failAcquire(
         managedResources.microphone,
         Object.assign(new Error('The device is busy'), {
-          name: 'NotReadableError',
+          name: 'AbortError',
         }),
       ),
       Command.expectExact(
         ReportProblem({
-          name: 'NotReadableError',
+          name: 'AbortError',
           detail: 'The device is busy',
         }),
       ),
