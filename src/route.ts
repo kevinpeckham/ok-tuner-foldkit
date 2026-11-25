@@ -40,11 +40,13 @@ import { defineRouteUnion, literal } from 'foldkit/route'
 //   Tuner     the tuner, at `/`.
 //   HowTo     "How to use the tuner", at `/how-to`.
 //   BuiltWith what the app is made of, at `/built-with`.
+//   Privacy   what the site does with data, at `/privacy`.
 //   NotFound  any other address. It carries the path that was asked for.
 export const AppRoute = defineRouteUnion({
   Tuner: {},
   HowTo: {},
   BuiltWith: {},
+  Privacy: {},
   NotFound: { path: Schema.String },
 })
 
@@ -85,6 +87,12 @@ export const builtWithRouter = pipe(
   Route.mapTo(AppRoute.BuiltWith),
 )
 
+/** The Privacy page, at `/privacy`. */
+export const privacyRouter = pipe(
+  literal('privacy'),
+  Route.mapTo(AppRoute.Privacy),
+)
+
 // PARSE
 
 // `Route.oneOf` tries each router in turn, and the first to match the whole
@@ -103,6 +111,6 @@ export const builtWithRouter = pipe(
 // too). Capitals do count: `/How-To` is not found.
 /** The route for an address. Never fails: an unknown address is NotFound. */
 export const urlToAppRoute = Route.parseUrlWithFallback(
-  Route.oneOf(howToRouter, builtWithRouter, tunerRouter),
+  Route.oneOf(howToRouter, builtWithRouter, privacyRouter, tunerRouter),
   AppRoute.NotFound,
 )

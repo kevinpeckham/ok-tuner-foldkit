@@ -48,9 +48,15 @@ describe('prerenderPaths', () => {
   // then moves to where Vercel looks for it (FINDINGS.md, "The 404 page is
   // prerendered, then moved").
   test('lists the two pages and the not-found page', () => {
-    expect(pagePaths).toEqual(['/', '/how-to', '/built-with'])
+    expect(pagePaths).toEqual(['/', '/how-to', '/built-with', '/privacy'])
     expect(NOT_FOUND_PATH).toBe('/404')
-    expect(prerenderPaths).toEqual(['/', '/how-to', '/built-with', '/404'])
+    expect(prerenderPaths).toEqual([
+      '/',
+      '/how-to',
+      '/built-with',
+      '/privacy',
+      '/404',
+    ])
   })
 
   // The guard against a page path that matches no route: the build would
@@ -153,7 +159,27 @@ describe('the built-with page, as the build writes it', () => {
   })
 })
 
+describe('the privacy page, as the build writes it', () => {
+  test('has its title and names the two services', async () => {
+    const html = await documentAt('/privacy')
+
+    expect(html).toContain('<title>Privacy | OK Tuner</title>')
+    expect(html).toContain('Sentry')
+    expect(html).toContain('Vercel Web Analytics')
+    expect(html).not.toContain('On / Off')
+  })
+})
+
 describe('every document', () => {
+  // The header, with the brand, is shared too, and each page has one
+  // first-level heading of its own.
+  test.each(prerenderPaths)('%s has a header and one h1', async path => {
+    const html = await documentAt(path)
+
+    expect(html).toContain('<header')
+    expect(html.split('<h1').length - 1).toBe(1)
+  })
+
   // The footer is part of what every page shares, so it is in every file
   // the build writes, the 404 page included.
   test.each(prerenderPaths)('%s carries the footer', async path => {

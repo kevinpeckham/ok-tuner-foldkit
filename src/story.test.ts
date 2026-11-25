@@ -1087,6 +1087,7 @@ describe('routing', () => {
       urlOf('http://localhost/built-with'),
       AppRoute.BuiltWith(),
     ],
+    ['the privacy page', urlOf('http://localhost/privacy'), AppRoute.Privacy()],
     [
       'an unknown address',
       urlOf('http://localhost/nope'),

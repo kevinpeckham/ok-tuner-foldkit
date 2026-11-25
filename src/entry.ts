@@ -3,6 +3,7 @@
 import './instrument'
 import { Runtime } from 'foldkit'
 
+import { startAnalytics } from './analytics'
 import {
   Message,
   Model,
@@ -52,6 +53,12 @@ import './styles.css'
 // about twenty-five seconds (FINDINGS.md, "The microphone is a managed
 // resource and the readings a subscription").
 const DEVTOOLS_MAX_ENTRIES = 500
+
+// Starts counting visits, before the app itself starts. It is plain code
+// run once, not part of the Foldkit app: src/analytics.ts adds a script tag
+// on the live site and does nothing anywhere else. The hostname is passed
+// in so that the function can be tested without a browser's address.
+startAnalytics(window.location.hostname)
 
 // `Runtime.makeApplication` assembles the app from its parts and returns a
 // program. Nothing is rendered and nothing runs yet: `Runtime.hydrate` below

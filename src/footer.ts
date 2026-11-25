@@ -3,11 +3,14 @@
 // What this file is. A view function with no state, like the pages under
 // src/page. It is not a page: `view` in src/view.ts draws it under whichever
 // page is showing, so it is in every file the build writes, the 404 page
-// included. It is patterned on the last two rows of Stem Shovel's footer.
+// included.
 //
-//   row 1   the copyright and license line, a link to the Built With page,
+//   row 1   what kind of site this is, with a link to the Privacy page
+//   row 2   the copyright and license line, a link to the Built With page,
 //           and a link to the code
-//   row 2   who built it, the version, and where the tuner came from
+//   row 3   who built it, the version, and where the tuner came from
+//
+// The last two rows are patterned on the last two of Stem Shovel's footer.
 //
 // The element is a `<footer>` placed beside the `<main>`, not inside it.
 // That placement is what makes it the page's "contentinfo" landmark, which a
@@ -16,8 +19,8 @@
 import { type Html, type HtmlBuilder } from 'foldkit/html'
 
 import { type Message } from './main'
-import { textLink } from './page/link'
-import { builtWithRouter } from './route'
+import { LINK_CLASS, textLink } from './page/link'
+import { builtWithRouter, privacyRouter } from './route'
 import {
   COPYRIGHT_HOLDER,
   COPYRIGHT_YEAR,
@@ -57,8 +60,29 @@ export const view = (h: HtmlBuilder<Message>): Html =>
       h.div(
         [h.Class('mx-auto w-full max-w-[600px]')],
         [
+          // The first row is a sentence that ends in a link. On screen the
+          // link reads "Learn More". Heard on its own, in a screen reader's
+          // list of links, those two words would say nothing, so the link
+          // carries a few more that are in the page and not on screen
+          // (`sr-only`). The visible words come first in the name, so a
+          // person who says "click Learn More" to voice control is
+          // understood. The link is built by hand, and not with
+          // `textLink`, because its content is more than one string.
+          h.p(
+            [],
+            [
+              'This application is ad-free, open-source and privacy-respecting. Safe for all ages. ',
+              h.a(
+                [h.Href(privacyRouter()), h.Class(LINK_CLASS)],
+                [
+                  'Learn More',
+                  h.span([h.Class('sr-only')], [' about privacy']),
+                ],
+              ),
+            ],
+          ),
           h.div(
-            [h.Class('flex flex-wrap items-center gap-x-4 gap-y-2')],
+            [h.Class('mt-3 flex flex-wrap items-center gap-x-4 gap-y-2')],
             [
               h.span(
                 [],

@@ -863,6 +863,7 @@ const enterRoute = (model: Model, nextRoute: AppRoute): Model =>
         Tuner: () => tuner,
         HowTo: () => TunerState.Off(),
         BuiltWith: () => TunerState.Off(),
+        Privacy: () => TunerState.Off(),
         NotFound: () => TunerState.Off(),
       }),
   })
