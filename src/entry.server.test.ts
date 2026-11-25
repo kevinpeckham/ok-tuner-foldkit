@@ -48,9 +48,9 @@ describe('prerenderPaths', () => {
   // then moves to where Vercel looks for it (FINDINGS.md, "The 404 page is
   // prerendered, then moved").
   test('lists the two pages and the not-found page', () => {
-    expect(pagePaths).toEqual(['/', '/how-to'])
+    expect(pagePaths).toEqual(['/', '/how-to', '/built-with'])
     expect(NOT_FOUND_PATH).toBe('/404')
-    expect(prerenderPaths).toEqual(['/', '/how-to', '/404'])
+    expect(prerenderPaths).toEqual(['/', '/how-to', '/built-with', '/404'])
   })
 
   // The guard against a page path that matches no route: the build would
@@ -142,7 +142,28 @@ describe('the how-to page, as the build writes it', () => {
   })
 })
 
+describe('the built-with page, as the build writes it', () => {
+  test('has its title and its list, and no tuner', async () => {
+    const html = await documentAt('/built-with')
+
+    expect(html).toContain('<title>Built with | OK Tuner</title>')
+    expect(html).toContain('href="https://foldkit.dev"')
+    expect(html).toContain('Web Audio API')
+    expect(html).not.toContain('On / Off')
+  })
+})
+
 describe('every document', () => {
+  // The footer is part of what every page shares, so it is in every file
+  // the build writes, the 404 page included.
+  test.each(prerenderPaths)('%s carries the footer', async path => {
+    const html = await documentAt(path)
+
+    expect(html).toContain('<footer')
+    expect(html).toContain('Built with Foldkit')
+    expect(html).toContain('Ported from')
+  })
+
   // The site is not public yet. vercel.json says so in a header, and every
   // page says so in its own head. `DOCUMENT_HEAD` is checked for the tag,
   // and the document is checked for `DOCUMENT_HEAD`, so a `renderDocument`

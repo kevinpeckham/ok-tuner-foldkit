@@ -109,6 +109,7 @@ import {
   text,
   title,
   type,
+  within,
 } from 'foldkit/scene'
 import { modifyFields } from 'foldkit/struct'
 import { fromString } from 'foldkit/url'
@@ -129,6 +130,13 @@ import {
 import { REFUSED } from './microphone'
 import { DEFAULT_PREFERENCES } from './preferences'
 import { AppRoute, PAGE_HEADING_ID } from './route'
+import {
+  GITHUB_URL,
+  LICENSE_URL,
+  LIGHTNING_JAR_URL,
+  STEM_SHOVEL_URL,
+  VERSION,
+} from './site'
 import { view } from './view'
 
 // FIXTURES
@@ -653,6 +661,7 @@ describe('pages', () => {
   test.each([
     ['tuner', AppRoute.Tuner(), 'OK Tuner'],
     ['how-to', AppRoute.HowTo(), 'How to use the tuner'],
+    ['built-with', AppRoute.BuiltWith(), 'Built with'],
     ['not-found', AppRoute.NotFound({ path: '/nope' }), 'Page not found'],
   ])('the %s page has one heading for focus to move to', (_, route, name) => {
     scene(
@@ -668,12 +677,90 @@ describe('pages', () => {
   test.each([
     ['tuner', AppRoute.Tuner()],
     ['how-to', AppRoute.HowTo()],
+    ['built-with', AppRoute.BuiltWith()],
     ['not-found', AppRoute.NotFound({ path: '/nope' })],
   ])('the %s page is headed OK Tuner', (_, route) => {
     scene(
       { update, view },
       given(onRoute(route)),
       expect(role('heading', { name: 'OK Tuner', level: 1 })).toExist(),
+    )
+  })
+})
+
+// The Built With page: what the app is made of, as groups of cards. Each
+// card is a link to the thing it names and a line about what it does here.
+describe('built-with page', () => {
+  const builtWith = modifyFields(offModel, {
+    route: () => AppRoute.BuiltWith(),
+  })
+
+  test('says what it is, lists what the app is made of, and links back', () => {
+    scene(
+      { update, view },
+      given(builtWith),
+      expect(role('heading', { name: 'Built with', level: 2 })).toExist(),
+      expect(role('heading', { name: 'The app', level: 3 })).toExist(),
+      expect(role('heading', { name: 'Sound', level: 3 })).toExist(),
+      expect(role('heading', { name: 'Running it', level: 3 })).toExist(),
+      expect(role('link', { name: 'Foldkit' })).toHaveAttr(
+        'href',
+        'https://foldkit.dev',
+      ),
+      expect(role('link', { name: 'Effect' })).toHaveAttr(
+        'href',
+        'https://effect.website',
+      ),
+      expect(role('link', { name: 'Back to the tuner' })).toHaveAttr(
+        'href',
+        '/',
+      ),
+      expect(role('button', { name: 'On / Off' })).toBeAbsent(),
+    )
+  })
+})
+
+// The footer: two rows of small print under every page. It sits outside
+// the <main> element, which is what makes it the page's `contentinfo`
+// landmark: a screen reader can jump straight to it. (A <footer> inside
+// <main> would not count, and `role('contentinfo')` would not find it.)
+// Every locator is scoped to the footer with `within`, because the Built
+// With page has links of the same names in its own text.
+describe('footer', () => {
+  const footer = role('contentinfo')
+  const inFooter = (name: string) => within(footer, role('link', { name }))
+
+  test.each([
+    ['tuner', AppRoute.Tuner()],
+    ['how-to', AppRoute.HowTo()],
+    ['built-with', AppRoute.BuiltWith()],
+    ['not-found', AppRoute.NotFound({ path: '/nope' })],
+  ])('the %s page has the footer, with its links', (_, route) => {
+    scene(
+      { update, view },
+      given(modifyFields(offModel, { route: () => route })),
+      expect(footer).toExist(),
+      // Row one: the copyright and license line, the Built With page, and
+      // the code.
+      expect(within(footer, text(/© 2026 Lightning Jar\./))).toExist(),
+      expect(inFooter('Apache 2.0 license')).toHaveAttr('href', LICENSE_URL),
+      expect(inFooter('Built with Foldkit')).toHaveAttr('href', '/built-with'),
+      expect(inFooter('GitHub')).toHaveAttr('href', GITHUB_URL),
+      // Row two: who built it, which version this is, and where it came
+      // from.
+      expect(inFooter('Lightning Jar')).toHaveAttr('href', LIGHTNING_JAR_URL),
+      expect(within(footer, text(`v${VERSION}`))).toExist(),
+      expect(inFooter('Stem Shovel')).toHaveAttr('href', STEM_SHOVEL_URL),
+    )
+  })
+
+  // The version shown is the one in package.json, so it cannot drift from
+  // the one the project is released under. This pins its shape.
+  test('the version is a release number', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      expect(within(footer, text(/^v\d+\.\d+\.\d+$/))).toExist(),
     )
   })
 })

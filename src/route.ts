@@ -39,10 +39,12 @@ import { defineRouteUnion, literal } from 'foldkit/route'
 //
 //   Tuner     the tuner, at `/`.
 //   HowTo     "How to use the tuner", at `/how-to`.
+//   BuiltWith what the app is made of, at `/built-with`.
 //   NotFound  any other address. It carries the path that was asked for.
 export const AppRoute = defineRouteUnion({
   Tuner: {},
   HowTo: {},
+  BuiltWith: {},
   NotFound: { path: Schema.String },
 })
 
@@ -67,7 +69,7 @@ export const PAGE_HEADING_ID = 'page-heading'
 //      result can parse a matching address into that route, and, called as a
 //      function, print the path for it.
 //
-// Neither route has parameters. A route with some, such as a page per
+// None of these routes has parameters. A route with some, such as a page per
 // tuning, would add them to the path (`slash(int('id'))` in Foldkit's
 // examples), and its router would take them as its argument.
 
@@ -76,6 +78,12 @@ export const tunerRouter = pipe(Route.root, Route.mapTo(AppRoute.Tuner))
 
 /** The how-to page, at `/how-to`. */
 export const howToRouter = pipe(literal('how-to'), Route.mapTo(AppRoute.HowTo))
+
+/** The Built With page, at `/built-with`. */
+export const builtWithRouter = pipe(
+  literal('built-with'),
+  Route.mapTo(AppRoute.BuiltWith),
+)
 
 // PARSE
 
@@ -95,6 +103,6 @@ export const howToRouter = pipe(literal('how-to'), Route.mapTo(AppRoute.HowTo))
 // too). Capitals do count: `/How-To` is not found.
 /** The route for an address. Never fails: an unknown address is NotFound. */
 export const urlToAppRoute = Route.parseUrlWithFallback(
-  Route.oneOf(howToRouter, tunerRouter),
+  Route.oneOf(howToRouter, builtWithRouter, tunerRouter),
   AppRoute.NotFound,
 )

@@ -27,7 +27,11 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 
 ### Pages
 
-The app has routing: the routes are in `src/route.ts`, and the route is a field of the Model. To add a page, add its route and router there, a view under `src/page/`, and its case in `pageTitle` and `view` in `src/view.ts` (the compiler asks for both, and for the case in `enterRoute` in `src/main.ts`). Nothing asks for the router to be listed in `Route.oneOf` in `urlToAppRoute`: leave it out and the page shows "Page not found", so add a row to `src/route.test.ts`. Nothing asks for its path in `prerenderPaths` in `src/entry.server.ts` either: leave it out and opening the address directly is a 404. Give one heading on the page `pageHeadingAttributes`, which is where focus moves when the page appears. Links are plain `<a>` elements built with `textLink` and a router, never a typed-out path. Only `ChangedUrl` sets the route. A Scene test cannot follow a link: see `FINDINGS.md` for how navigation is tested.
+The app has routing: the routes are in `src/route.ts`, and the route is a field of the Model. To add a page, add its route and router there, a view under `src/page/`, and its case in `pageTitle` and `view` in `src/view.ts` (the compiler asks for both, and for the case in `enterRoute` in `src/main.ts`). Nothing asks for the router to be listed in `Route.oneOf` in `urlToAppRoute`: leave it out and the page shows "Page not found", so add a row to `src/route.test.ts`. Nothing asks for its path in `prerenderPaths` in `src/entry.server.ts` either: leave it out and opening the address directly is a 404. Give one heading on the page `pageHeadingAttributes`, which is where focus moves when the page appears. Links are plain `<a>` elements built with `textLink` and a router, never a typed-out path. A link to another site is the same element with a full address: the runtime tells the two apart. Addresses used in more than one place are constants in `src/site.ts`. The footer (`src/footer.ts`) is drawn under every page by `view`, outside the `<main>`. Only `ChangedUrl` sets the route. A Scene test cannot follow a link: see `FINDINGS.md` for how navigation is tested.
+
+### Version
+
+The footer shows the version in `package.json` (`VERSION` in `src/site.ts`). Raise it in the same pull request as each change that alters what a visitor gets: the minor number for a feature, the patch number for a fix. A docs-only change leaves it alone.
 
 ### Prerendering
 

@@ -73,8 +73,6 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 
 ## Page content
 
-- **Footer:** copyright, attribution, and links to Stem Shovel and Lightning Jar.
-- **"Built with Foldkit"** in the footer, linking to the Foldkit project.
 - **Ad-free and tracker-free, in the title.** Update the page title to say so.
 - **Ad-free and tracker-free, in the copy.** Add a line to the page saying so.
 - **A custom crash screen** in place of Foldkit's default, which is written for developers.

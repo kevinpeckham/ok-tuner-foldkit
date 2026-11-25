@@ -8,6 +8,13 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### The footer shows a version, not a commit (2026-11-25, footer)
+
+- **Why.** Stem Shovel's footer shows the version and the commit. A commit hash is a value from the build's environment, and a prerendered page needs every value to be the same in the build and in the browser, so it would have to be compiled into both. The version is already in `package.json`, which both read.
+- **How.** `src/site.ts` re-exports `version` from `package.json`. Vite takes one field of a JSON file when it is imported by name, so the built script holds the string and not the file: checked by searching the built script for other fields of `package.json`.
+- **What it costs.** The number is raised by hand (`AGENTS.md`, "Version"), and says less than a commit would.
+- **Where.** `src/site.ts`; `resolveJsonModule` in `tsconfig.json`.
+
 ### The pages are prerendered (2026-11-25, prerender)
 
 - **Why.** The server used to send an empty page and a 497 kB script that drew everything. Now the build writes `/` and `/how-to` as HTML (8 kB and 2.4 kB), so the page shows before the script runs, an unknown address is a real 404, and the site is ready to be crawled when `noindex` comes off.
@@ -90,6 +97,20 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Foldkit and Effect
 
+### The app's root element is a `<div>`, so the footer can be a landmark (2026-11-25, footer)
+
+- **Why.** A `<footer>` is the page's "contentinfo" landmark only when it is not inside `<main>`. The view's root used to be the `<main>`, and a view has one root, so the root became a `<div>` holding the `<main>` and the `<footer>`.
+- **How it is pinned.** Foldkit's Scene knows the rule: `role('contentinfo')` does not find a footer inside a `<main>`. The footer's tests are scoped with `within(footer, ...)`, because the Built With page has links of the same names in its own text.
+- **Where.** `view` in `src/view.ts`; `src/footer.ts`; 'footer' in `src/scene.test.ts`.
+
+### A link to another site needs nothing special (2026-11-25, footer)
+
+- **What happens.** The footer and the Built With page hold the app's first links to other sites. Each is a plain `<a href>` with a full address. The runtime reports the click as `UrlRequest.External`, and `update` answers with `LoadExternal`, which had been written for the routing change and never run. In headless Chrome a click on "GitHub" loaded github.com.
+- **What was left out on purpose.** No `target` and no `rel`: the links open in the same tab, as Stem Shovel's do, and `rel="noopener"` only matters with a new tab.
+- **Copying from Stem Shovel.** Its Built With page labels each section with `aria-labelledby="built-{title}"`, and a title such as "The app" makes an id with a space in it, which that attribute reads as two ids. The copy here has no such attribute. The original is as it was.
+- **Check the addresses.** Every address was fetched before it went in. The paper on McLeod's pitch method did not answer at the address I had for it, so that card links to this app's `src/pitch.ts`.
+- **Where.** `src/footer.ts`, `src/page/builtWith.ts`, `src/site.ts`.
+
 ### What prerendering asks of the code (2026-11-25, prerender)
 
 - **`init` and `view` must not depend on the browser.** The build runs them in Node. Ours needed no change, because they were pure already. The server bundle also imports `sentry.ts` through `main.ts`, which is safe because nothing there runs on import: Sentry starts from `src/instrument.ts`, which only the browser's entry imports.
@@ -169,7 +190,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 - **What happens.** Foldkit's documentation says the view is patched "into the container". In the running page the view's root element (the `<main>`) takes the container's place: `document.getElementById('root')` is null once the app has drawn.
 - **What to do.** Do not style, select or measure `#root`. Seen in headless Chrome while the comments were being written.
-- **Since 2026-11-25** the pages are prerendered and there is no `#root` at all: the `<main>` is in the HTML the build writes.
+- **Since 2026-11-25** the pages are prerendered and there is no `#root` at all: the view's root, now a `<div>` holding the `<main>` and the footer, is in the HTML the build writes.
 
 ### `update`'s return type must name the microphone service, though no Command uses it (2026-11-24, Foldkit)
 

@@ -11,9 +11,10 @@ It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <htt
 - `src/microphone.ts`: opening and closing the microphone, and reading one measurement.
 - `src/main.ts`: the Model, Messages, `update`, the microphone as a managed resource, and the 50 ms readings as a subscription.
 - `src/entry.server.ts`: how the build writes each page as an HTML file. `src/entry.ts` is the browser's half, which takes that HTML over.
-- `src/route.ts`: the pages as routes: the tuner at `/`, "How to use the tuner" at `/how-to`, and a not-found page.
+- `src/route.ts`: the pages as routes: the tuner at `/`, "How to use the tuner" at `/how-to`, "Built with" at `/built-with`, and a not-found page.
 - `src/sentry.ts`: everything that touches the Sentry SDK. `src/instrument.ts` starts it before the rest of the app loads.
-- `src/view.ts`: what every page shares, and the tuner's face. `src/page/` holds the other pages.
+- `src/view.ts`: what every page shares, and the tuner's face. `src/page/` holds the other pages, and `src/footer.ts` the footer.
+- `src/site.ts`: the version and the addresses the footer and the Built With page link to.
 
 The design and the implementation plan are in `docs/superpowers/`. Gotchas, and the reasons behind the less obvious choices, are in [`FINDINGS.md`](./FINDINGS.md). Planned work is in [`docs/backlog.md`](./docs/backlog.md).
 
@@ -71,6 +72,10 @@ A visit where nothing goes wrong sends nothing. There is no session tracking, tr
 An error report does carry the page URL, the browser's locale and timezone, and the clicks and console lines just before it. Sentry also adds an approximate location (country, sometimes a city) on its side, although it stores no IP address.
 
 Reports are sent only from the project's own hosts, listed in `src/sentry.ts`, and tagged `production` or `development` by hostname: the live site and the project's dev server. A fork, a Vercel preview, or `bun run dev` on `localhost`, reports nothing. The Sentry project's Allowed Domains setting holds the same hosts, so Sentry drops a report from anywhere else.
+
+## License
+
+[Apache License 2.0](./LICENSE), the same as Stem Shovel, which the tuner is ported from. © 2026 Lightning Jar.
 
 ## Deployment
 

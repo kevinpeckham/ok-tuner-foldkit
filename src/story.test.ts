@@ -1083,6 +1083,11 @@ describe('routing', () => {
   describe.each([
     ['the how-to page', howToUrl, AppRoute.HowTo()],
     [
+      'the built-with page',
+      urlOf('http://localhost/built-with'),
+      AppRoute.BuiltWith(),
+    ],
+    [
       'an unknown address',
       urlOf('http://localhost/nope'),
       AppRoute.NotFound({ path: '/nope' }),
