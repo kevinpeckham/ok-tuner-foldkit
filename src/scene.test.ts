@@ -128,6 +128,7 @@ import {
 } from './main'
 import { REFUSED } from './microphone'
 import { DEFAULT_PREFERENCES } from './preferences'
+import { AppRoute } from './route'
 import { view } from './view'
 
 // FIXTURES
@@ -213,8 +214,8 @@ const litString = selector('[aria-current="true"]')
 // to `expectAll(...)` to be counted, or to `nth(...)` to pick one out.
 //
 // The selector is scoped to the list labelled "Strings" on purpose. The
-// how-to text lower down the page is a list too, and a bare `li` counted ten
-// strings where there are six (FINDINGS.md, "Scope a locator to the part of
+// how-to text was on this page when the test was written. It is a list too,
+// and a bare `li` counted ten strings where there are six (FINDINGS.md, "Scope a locator to the part of
 // the page it is about").
 const strings = all.selector('[aria-label="Strings"] li')
 
@@ -458,8 +459,9 @@ describe('screen', () => {
       given(listening({ level: 0.2 })),
       // `text` also takes a regular expression, which it tests against the
       // text of each element. The pattern is `/Hz ·/` and not `/Hz/` because
-      // the how-to text lower down the page says "442 Hz". The shorter
-      // pattern found that sentence and this check failed (FINDINGS.md,
+      // the how-to text, which was on this page when the test was written,
+      // says "442 Hz". The shorter pattern found that sentence and this
+      // check failed (FINDINGS.md,
       // "Scope a locator to the part of the page it is about").
       expect(text(/Hz ·/)).toBeAbsent(),
       expect(needleMarker).toBeAbsent(),
@@ -547,15 +549,80 @@ describe('strings', () => {
   })
 })
 
-// The explanation printed below the tuner. One scene pins its heading and
-// the sentence that tells people nothing is recorded.
-describe('how-to', () => {
-  test('the page explains the tuner', () => {
+// The app has three pages, and the route in the Model says which one the
+// view draws (src/route.ts). A scene is given a Model, so each page is
+// reached by putting its route in the Model: `onRoute` does that.
+//
+// What a scene cannot do is follow a link. A click on a link is caught by
+// the runtime, which listens on the real document and sends ClickedLink,
+// and a scene has no runtime and no address bar. So these tests pin what
+// each page shows and where its link points. `update`'s half is in
+// story.test.ts under 'routing', and a click through and back in a real
+// browser is a check by hand (FINDINGS.md, "A Scene test cannot follow a
+// link").
+describe('pages', () => {
+  const onRoute = (route: AppRoute): Model =>
+    modifyFields(offModel, { route: () => route })
+
+  const powerButton = role('button', { name: 'On / Off' })
+  const howToHeading = role('heading', { name: 'How to use the tuner' })
+  // A link is found by its role and its text, as a screen reader names it.
+  // `toHaveAttr` then checks where it goes.
+  const backLink = role('link', { name: 'Back to the tuner' })
+
+  // The tuner's page has the tuner, and a link to the how-to text in place
+  // of the text itself.
+  test('the tuner page shows the tuner and links to the how-to page', () => {
     scene(
       { update, view },
-      given(offModel),
-      expect(role('heading', { name: 'How to use the tuner' })).toExist(),
+      given(onRoute(AppRoute.Tuner())),
+      expect(powerButton).toExist(),
+      expect(role('link', { name: 'How to use the tuner' })).toHaveAttr(
+        'href',
+        '/how-to',
+      ),
+      expect(howToHeading).toBeAbsent(),
+      expect(text(/Nothing is recorded\./)).toBeAbsent(),
+    )
+  })
+
+  // The how-to page has the explanation, with the sentence that tells
+  // people nothing is recorded, and no tuner.
+  test('the how-to page explains the tuner and links back', () => {
+    scene(
+      { update, view },
+      given(onRoute(AppRoute.HowTo())),
+      expect(howToHeading).toExist(),
       expect(text(/Nothing is recorded\./)).toExist(),
+      expect(role('heading', { name: 'Quick tips' })).toExist(),
+      expect(backLink).toHaveAttr('href', '/'),
+      expect(powerButton).toBeAbsent(),
+    )
+  })
+
+  // An address no route matches still draws a page, which names the path
+  // that was asked for.
+  test('an unknown address says so and links back', () => {
+    scene(
+      { update, view },
+      given(onRoute(AppRoute.NotFound({ path: '/nope' }))),
+      expect(role('heading', { name: 'Page not found' })).toExist(),
+      expect(text(/\/nope/)).toExist(),
+      expect(backLink).toHaveAttr('href', '/'),
+      expect(powerButton).toBeAbsent(),
+    )
+  })
+
+  // The site's name is the first heading of every page.
+  test.each([
+    ['tuner', AppRoute.Tuner()],
+    ['how-to', AppRoute.HowTo()],
+    ['not-found', AppRoute.NotFound({ path: '/nope' })],
+  ])('the %s page is headed OK Tuner', (_, route) => {
+    scene(
+      { update, view },
+      given(onRoute(route)),
+      expect(role('heading', { name: 'OK Tuner', level: 1 })).toExist(),
     )
   })
 })
