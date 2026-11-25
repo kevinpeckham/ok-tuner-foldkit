@@ -4,16 +4,16 @@
 // A4 is), their limits and defaults, and the pure functions that turn them
 // into JSON text and back. It does not touch `localStorage`. Reading and
 // writing storage are side effects, and in a Foldkit app side effects are
-// kept out of plain functions: they live in `src/main.ts`, as an Effect for
-// the startup read and a Command for each write.
+// kept out of plain functions: they live in `src/main.ts`, as one Command
+// for the read at start-up and one for each write.
 //
 // Where it sits in the app.
-//   - Startup. `flags` in `main.ts` is an Effect that the runtime runs before
-//     `init`. It reads the text stored under STORAGE_KEY and gives it to
-//     `preferencesFromJson`. The result is the app's Flags: the runtime
-//     passes it to `init`, which builds the first Model from it. Flags are
-//     Foldkit's way of getting outside values into `init` while keeping
-//     `init` a pure function.
+//   - Startup. `init` in `main.ts` builds the first Model from the defaults
+//     below and returns the `LoadPreferences` Command. Once the app is
+//     running in the browser, that Command reads the text stored under
+//     STORAGE_KEY and gives it to `preferencesFromJson`, and `update` puts
+//     the result in the Model. The read cannot happen in `init`, which is a
+//     pure function and also runs in the build, where there is no storage.
 //   - Saving. When the person picks a tuning or types a usable A4, `update`
 //     returns the `SavePreferences` Command, which writes
 //     `preferencesToJson(...)` back under the same key.
@@ -38,9 +38,8 @@ import { DEFAULT_TUNING_ID, isTuningId } from './tuning'
 
 // The saved preferences, as an Effect Schema. This one declaration is used
 // three ways:
-//   - `Flags` in `main.ts` is `Schema.Struct({ preferences: Preferences })`,
-//     and `entry.ts` gives that Schema to `Runtime.makeApplication`, so
-//     Foldkit knows the shape of what `flags` produces.
+//   - The `CompletedLoadPreferences` Message in `main.ts` carries a value
+//     of this shape, so the Schema is the type of its `preferences` field.
 //   - `encodePreferences` at the bottom of this file is built from it.
 //   - The `type` on the line after is read off it with `.Type`, so the
 //     TypeScript type and the Schema cannot drift apart. The `const` and the
@@ -65,8 +64,9 @@ export const A4_MIN = 400
 export const A4_MAX = 480
 export const A4_DEFAULT = 440
 
-// What a first visit gets. `flags` in `main.ts` also falls back to this when
-// storage cannot be read at all (FINDINGS.md, "Blocked site storage throws
+// What every visit starts with, and what a first visit keeps.
+// `LoadPreferences` in `main.ts` also falls back to this when storage cannot
+// be read at all (FINDINGS.md, "Blocked site storage throws
 // while the storage layer is built, outside the typed error channel").
 export const DEFAULT_PREFERENCES: Preferences = {
   tuningId: DEFAULT_TUNING_ID,
@@ -139,7 +139,7 @@ const decodeSavedFields = Schema.decodeUnknownOption(
 const decodeString = Schema.decodeUnknownOption(Schema.String)
 const decodeNumber = Schema.decodeUnknownOption(Schema.Number)
 
-// The function `flags` in `main.ts` calls at startup. Its argument is already
+// The function `LoadPreferences` in `main.ts` calls at startup. Its argument is already
 // an Option, because the storage key may hold nothing.
 //
 //   - `Option.flatMap(decodeSavedFields)`: if there is text, decode it. The

@@ -3,8 +3,12 @@
 //
 // What this file is. Vite is the build tool. It runs this file in Node, never
 // in the browser, when `bun run dev` or `bun run build` starts, and the
-// object exported at the bottom configures both. The page itself starts from
-// `index.html`, which loads `src/styles.css` and `src/entry.ts`.
+// object exported at the bottom configures both.
+//
+// There is no `index.html`. The site is prerendered: a build writes each
+// page as an HTML file by running the app once for it, through
+// `src/entry.server.ts`, and the browser's script, `src/entry.ts`, then
+// takes that HTML over. The Foldkit plugin's options below set this up.
 //
 // It sets up four plugins:
 //   1. Varlock loads the environment: `.env.schema`, with values from
@@ -117,10 +121,33 @@ export default defineConfig({
     //     `foldkit`, and has Vite pre-bundle the Effect modules that Foldkit
     //     imports, so that Foldkit and the app share one copy of Effect.
     //
-    // The plugin takes options for server rendering, for the relay's port
-    // and for a build id. This app is rendered in the browser and passes
-    // none. Source: `repos/foldkit/packages/vite-plugin-foldkit/README.md`.
-    foldkit(),
+    // The `ssr` option turns on server rendering, which here means
+    // prerendering: there is no server once the site is built.
+    //   - `serverEntry`: the file that renders a page for a request. In
+    //     development the dev server calls it for every page the browser
+    //     asks for, so pages are drawn the same way as in a build.
+    //   - `clientEntry`: the browser's script. With `build` set, the build
+    //     starts from this script and not from an `index.html`, and the
+    //     server entry produces the whole document.
+    //   - `build.prerender`: after bundling, the plugin calls the server
+    //     entry once for each path in its `prerenderPaths` and writes the
+    //     result to a file. `origin` is the site's address, used to make
+    //     the request for each path.
+    // A build therefore runs twice over: once for the browser, into
+    // `dist/client`, which is what Vercel serves (`vercel.json`), and once
+    // for Node, into `dist/server`, which exists only to do the rendering.
+    //
+    // NOTE: Foldkit marks server rendering experimental. Sources: the
+    // README in `repos/foldkit/packages/vite-plugin-foldkit/`, and for
+    // `build.prerender`, `prerenderPaths` and the two output folders,
+    // `src/build.ts` beside it.
+    foldkit({
+      ssr: {
+        serverEntry: '/src/entry.server.ts',
+        clientEntry: '/src/entry.ts',
+        build: { prerender: { origin: 'https://www.oktuner.com' } },
+      },
+    }),
     // Sentry's Vite plugin. On a build where it is enabled it uploads the
     // source maps to Sentry and writes a release name into the bundle, which
     // the SDK in `src/sentry.ts` picks up.
@@ -134,15 +161,33 @@ export default defineConfig({
     // The plugin's version matters: it must stay at 11.16.0 or later
     // (AGENTS.md, "Error reporting"; FINDINGS.md, "Source maps resolved one
     // line off").
-    sentryVitePlugin({
-      org: 'lightning-jar',
-      project: 'ok-tuner',
-      authToken: sentryAuthToken,
-      telemetry: false,
-      disable: !uploadsSourceMaps,
-      // The maps are for Sentry, not for the site: removed once uploaded.
-      sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] },
-    }),
+    //
+    // The build now makes two bundles, and Vite calls each one's set of
+    // settings an "environment": `client` for the browser and `ssr` for
+    // Node. Only the browser's bundle ever runs where Sentry is listening,
+    // so only its maps are worth uploading. `applyToEnvironment` is Vite's
+    // way of limiting a plugin to some environments: it is called with each
+    // one, and the plugin's build hooks run only where it answers true.
+    // (Vite marks the option experimental, and a plugin's `config` hooks
+    // still run for every environment.) `sentryVitePlugin` may return one
+    // plugin or several, hence `flat` and `map`.
+    ...[
+      sentryVitePlugin({
+        org: 'lightning-jar',
+        project: 'ok-tuner',
+        authToken: sentryAuthToken,
+        telemetry: false,
+        disable: !uploadsSourceMaps,
+        // The maps are for Sentry, not for the site: the browser bundle's
+        // are removed once uploaded.
+        sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] },
+      }),
+    ]
+      .flat()
+      .map(plugin => ({
+        ...plugin,
+        applyToEnvironment: environment => environment.name === 'client',
+      })),
   ],
   build: {
     // `'hidden'` makes Vite write the source map files but leave out of each
@@ -151,10 +196,17 @@ export default defineConfig({
     // every other build, writes no maps at all.
     sourcemap: uploadsSourceMaps ? 'hidden' : false,
   },
+  // Settings for one environment override the ones above. The Node bundle
+  // exists only to draw the pages during the build, and nothing reports
+  // errors from it, so it gets no source map.
+  environments: {
+    ssr: { build: { sourcemap: false } },
+  },
   optimizeDeps: {
     // In development Vite pre-bundles the app's dependencies, and it finds
-    // them by crawling from the entry points. By default it crawls
-    // `index.html`. `entries` names the entry points to crawl in its place.
+    // them by crawling from the entry points. By default it crawls an
+    // `index.html`, and this project has none. `entries` names the entry
+    // points to crawl in its place.
     // This setting comes unchanged from Foldkit's starter template
     // (`create-foldkit-app`).
     entries: ['src/entry.ts'],

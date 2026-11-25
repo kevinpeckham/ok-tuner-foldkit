@@ -8,10 +8,14 @@
 // Like the how-to page, this one is static: a view function and nothing
 // more.
 //
-// NOTE: on the live site this page is served with status 200, not 404.
-// Vercel sends every path that is not a file to index.html, and only then
-// does the app discover that it has no such page (FINDINGS.md, "An unknown
-// address is answered 200").
+// NOTE: on the live site, opening an unknown address does not reach this
+// page. The site is prerendered, an address with no file is a 404, and
+// Vercel answers with public/404.html, a page written by hand that says the
+// same thing. This view is what shows when the app itself arrives at an
+// address it does not have, without a page load, and in development, where
+// the dev server renders every address through the app. It also shows for
+// an address that is a file but not a route, such as `/index.html`: the
+// file's page appears, then this one replaces it (docs/backlog.md).
 import { type Html, type HtmlBuilder } from 'foldkit/html'
 
 import { type Message } from '../main'

@@ -1,0 +1,82 @@
+<!doctype html>
+<!--
+  404.html: the page for an address the site does not have.
+
+  Why it is a file written by hand. The site is prerendered: the build writes
+  an HTML file for each page (src/entry.server.ts), and Vercel serves files.
+  An address with no file gets status 404, and Vercel sends the file named
+  404.html with it, if there is one. Foldkit's prerender cannot write this
+  file: it turns a path into a folder holding an index.html, and a folder
+  named 404.html is not what Vercel looks for (FINDINGS.md, "The 404 page is
+  written by hand").
+
+  So this page is not part of the app. It loads no script and no built
+  stylesheet, because the names of those files carry a hash that the build
+  works out, and nothing here could know it. Its few styles are inline, with the colours
+  copied from src/styles.css. If the look of the site changes, change it here
+  too.
+
+  The app has a not-found page of its own (src/page/notFound.ts), which is
+  what shows when an unknown address is reached without a page load, and in
+  development. This file is in public/, which Vite copies into the output as
+  it is.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon-48.png" type="image/png" sizes="48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="robots" content="noindex" />
+    <title>Page not found | OK Tuner</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 3rem 1.5rem;
+        box-sizing: border-box;
+        background: #01061c;
+        background: oklch(0.115 0.048 259.91);
+        color: #f1f5f9;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        line-height: 1.5;
+      }
+      main {
+        margin: 0 auto;
+        max-width: 600px;
+      }
+      h1 {
+        margin: 0;
+        font-family: ui-serif, Georgia, serif;
+        font-size: 1.875rem;
+        font-weight: 400;
+      }
+      h2 {
+        margin: 2rem 0 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #f8fafc;
+      }
+      p {
+        margin: 0.75rem 0 0;
+        color: #e2e8f0;
+      }
+      a {
+        color: #f1f5f9;
+        text-underline-offset: 4px;
+      }
+      a:hover {
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>OK Tuner</h1>
+      <h2>Page not found</h2>
+      <p>There is no page at this address.</p>
+      <p><a href="/">Back to the tuner</a></p>
+    </main>
+  </body>
+</html>

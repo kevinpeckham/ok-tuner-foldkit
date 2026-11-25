@@ -1,0 +1,120 @@
+// entry.server.test.ts: the tests for src/entry.server.ts, the file the
+// build uses to write each page as HTML.
+//
+// These tests do what the build does, for each page: render the app at an
+// address, wrap the result in a document, and look at the HTML. Nothing
+// here needs a browser, which is the point of a prerendered page.
+//
+// One thing differs from a real build. A page that a browser can take over
+// carries a build id, which says which build drew it, and Foldkit's Vite
+// plugin compiles that id in during a build. A test run has none, and
+// `renderPage` itself refuses to render without one. So the tests call
+// `renderApplication`, the function `renderPage` is built on, and pass an
+// id of their own (FINDINGS.md, "The server entry is tested by rendering
+// with a build id of its own").
+import { Effect } from 'effect'
+import { describe, expect, test } from 'vitest'
+
+import {
+  DOCUMENT_HEAD,
+  prerenderPaths,
+  renderApplication,
+  renderDocument,
+} from './entry.server'
+
+// What the plugin hands `renderDocument` in a build: the addresses of the
+// built script and stylesheet. These stand in for them.
+const assets = {
+  entryScript: '/assets/app-test.js',
+  stylesheets: ['/assets/app-test.css'],
+  modulePreloads: [],
+}
+
+// The whole document for one path, as the build would write it to a file.
+// `Effect.runPromise` runs the render, as `renderPage` does.
+const documentAt = async (path: string): Promise<string> =>
+  renderDocument(
+    await Effect.runPromise(
+      renderApplication(`https://www.oktuner.com${path}`, 'test-build'),
+    ),
+    assets,
+  )
+
+describe('prerenderPaths', () => {
+  // The build writes one HTML file for each of these. The not-found page is
+  // not among them: it has no address of its own.
+  test('lists the tuner and the how-to page', () => {
+    expect(prerenderPaths).toEqual(['/', '/how-to'])
+  })
+
+  // The guard against a path that is listed but matches no route: the build
+  // would write the app's not-found page to a file and serve it with status
+  // 200.
+  test.each(prerenderPaths)('%s renders a page of its own', async path => {
+    expect(await documentAt(path)).not.toContain('Page not found')
+  })
+})
+
+describe('the tuner page, as the build writes it', () => {
+  test('has its title, the tuner, and no how-to text', async () => {
+    const html = await documentAt('/')
+
+    expect(html).toContain(
+      '<title>OK Tuner | Chromatic Instrument Tuner</title>',
+    )
+    expect(html).toContain('On / Off')
+    expect(html).toContain('href="/how-to"')
+    expect(html).not.toContain('Quick tips')
+  })
+
+  // The first Model is the same for every visitor, so the page in the file
+  // shows the default tuning. A saved one replaces it in the browser.
+  test('shows the default tuning', async () => {
+    expect(await documentAt('/')).toContain('Guitar - Standard')
+  })
+})
+
+describe('the how-to page, as the build writes it', () => {
+  test('has its title and its text, and no tuner', async () => {
+    const html = await documentAt('/how-to')
+
+    expect(html).toContain('<title>How to use the tuner | OK Tuner</title>')
+    expect(html).toContain('Quick tips')
+    expect(html).toContain('Nothing is recorded.')
+    expect(html).not.toContain('On / Off')
+  })
+})
+
+describe('every document', () => {
+  // The site is not public yet. vercel.json says so in a header, and every
+  // page says so in its own head. `DOCUMENT_HEAD` is checked for the tag,
+  // and the document is checked for `DOCUMENT_HEAD`, so a `renderDocument`
+  // that dropped it would fail here.
+  test('asks search engines not to index it, and links the icons', async () => {
+    const html = await documentAt('/')
+
+    expect(DOCUMENT_HEAD).toContain('<meta name="robots" content="noindex" />')
+    expect(DOCUMENT_HEAD).toContain('href="/favicon.svg"')
+    expect(DOCUMENT_HEAD).toContain('href="/favicon-48.png"')
+    expect(DOCUMENT_HEAD).toContain('href="/apple-touch-icon.png"')
+    expect(html).toContain(DOCUMENT_HEAD)
+  })
+
+  // `lang` comes from `renderDocument`. The script and the stylesheet come
+  // from the assets it is given. There is no empty container waiting to be
+  // filled: the page is in the file.
+  test('is in English, loads the built files, and holds the page itself', async () => {
+    const html = await documentAt('/how-to')
+
+    expect(html).toContain('<html lang="en">')
+    expect(html).toContain('src="/assets/app-test.js"')
+    expect(html).toContain('href="/assets/app-test.css"')
+    expect(html).not.toContain('id="root"')
+  })
+
+  // The mark the browser's runtime looks for when it takes the page over,
+  // carrying the build id the render was given.
+  test('is marked with the build that drew it', async () => {
+    expect(await documentAt('/')).toContain('data-foldkit-build="test-build"')
+  })
+})

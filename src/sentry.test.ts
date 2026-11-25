@@ -33,7 +33,6 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as Sentry from '@sentry/browser'
 
 import { Message, ReportProblem, TunerState, init } from './main'
-import { DEFAULT_PREFERENCES } from './preferences'
 import {
   DETAIL_LIMIT,
   SENTRY_DSN,
@@ -311,20 +310,17 @@ describe('reportCrash', () => {
   test('a crash keeps the nested parts of the model and the message', async () => {
     const { events } = startRecording()
     const reading = Option.some({ frequency: 110, clarity: 0.95 })
-    // `init` takes the address the app is opened at as well as the flags.
+    // `init` takes the address the app is opened at.
     const url = Option.getOrThrow(fromString('http://localhost/'))
-    const model = modifyFields(
-      init({ preferences: DEFAULT_PREFERENCES }, url).model,
-      {
-        tuner: () =>
-          TunerState.Listening({
-            level: 0.5,
-            maybeReading: reading,
-            needleCents: 3,
-            quietTicks: 0,
-          }),
-      },
-    )
+    const model = modifyFields(init(url).model, {
+      tuner: () =>
+        TunerState.Listening({
+          level: 0.5,
+          maybeReading: reading,
+          needleCents: 3,
+          quietTicks: 0,
+        }),
+    })
 
     reportCrash({
       error: new Error('boom'),
