@@ -7,8 +7,8 @@
 //
 //   Model             one immutable value holding all of the app's state
 //   Message           every fact that can happen to the app, as a tagged union
-//   Flags, init       the data read at start-up, and the first Model built
-//                     from it
+//   init              the first Model, and the Command that reads the saved
+//                     preferences
 //   update            (Model, Message) -> next Model + Commands. The only
 //                     place state changes, and a pure function
 //   Commands          one-shot side effects, described here and run by the
@@ -20,8 +20,8 @@
 //
 // The loop, as this app goes round it:
 //
-//   1. At start-up the runtime runs the `flags` Effect and calls `init` with
-//      the result, which gives the first Model.
+//   1. At start-up the runtime calls `init` with the page's address, which
+//      gives the first Model and one Command, LoadPreferences.
 //   2. The runtime renders the Model with `view` (src/view.ts).
 //   3. Something happens, and is recorded as a Message. A click on the power
 //      button is ClickedPower; the microphone opening is
@@ -296,7 +296,8 @@ export type Model = typeof Model.Type
 //
 // There is no "NoOp" Message, and FOLDKIT.md forbids one. Seven of the
 // Messages below change nothing in the Model (ReleasedMicrophone, the two
-// results of SavePreferences, and the four that start with Completed). Each
+// results of SavePreferences, and every Completed* except
+// CompletedLoadPreferences). Each
 // still says what
 // happened, so the Message history in the Foldkit DevTools reads as a record
 // of events.
@@ -319,6 +320,9 @@ export const Message = defineMessageUnion({
   GotA4PopoverMessage: { message: Popover.Message },
   // From the view: the text in the A4 field changed.
   UpdatedA4Input: { value: Schema.String },
+  // From the LoadPreferences Command, once at start-up: the saved tuning
+  // and A4, or the defaults if nothing usable is saved.
+  CompletedLoadPreferences: { preferences: Preferences },
   // From the SavePreferences Command: the write worked, or it did not.
   SucceededSavePreferences: {},
   FailedSavePreferences: {},
@@ -344,76 +348,39 @@ export type Message = typeof Message.Type
 
 // INIT
 
-// Flags are Foldkit's name for data handed to the app at start-up, before
-// there is a Model. Here they are the saved preferences. They come in two
-// parts:
-//   - `Flags`, a Schema for their shape. Passing it to
-//     `Runtime.makeApplication` (src/entry.ts) is what makes `init` take the
-//     flags as its argument.
-//   - `flags`, an Effect that produces a value of that shape. It is passed
-//     to `Runtime.run`, and the runtime runs it before it calls `init`.
-// Reading localStorage is a side effect, and `init` is a pure function like
-// `update`, so the read cannot happen there. Flags are where a side effect
-// at start-up belongs.
-
-// NOTE: with site data blocked, reading `localStorage` throws while the
-// storage layer is being built, outside the typed error channel. Both the
-// flags and SavePreferences therefore provide the layer first and catch the
-// whole cause after it, so blocked storage means default preferences and an
-// unsaved choice, never a crash.
-export const Flags = Schema.Struct({ preferences: Preferences })
-export type Flags = typeof Flags.Type
-
-// An `Effect.Effect<A>` is a description of a computation that produces an
-// `A` when it is run. Nothing below runs when this module is loaded: `flags`
-// is a value, and the runtime runs it. The annotation `Effect.Effect<Flags>`
-// leaves the type's other two slots, for errors and for requirements, at
-// their default of `never`: this Effect cannot fail, and needs nothing
-// supplied to it. The two steps of the `.pipe(...)` are what make that true.
-//
-// `Effect.gen(function* () { ... })` writes an Effect in the style of
-// async/await. `yield*` runs another Effect and gives back its result.
-//   - `yield* KeyValueStore.KeyValueStore` asks for a service. This is
-//     Effect's dependency injection: the code says "whichever key-value store
-//     has been provided" and does not name localStorage.
-//   - `store.get(key)` is an Effect that gives the stored string, or
-//     undefined. `Option.fromNullishOr` turns that into an `Option`.
-//   - `preferencesFromJson` (src/preferences.ts) checks what it is given and
-//     falls back to the default for anything missing or damaged.
-//
-// `x.pipe(a, b)` passes `x` through `a`, then the result through `b`.
-//   - `Effect.provide(layer)` supplies the service asked for above. A Layer
-//     is a recipe for building a service. This one builds a KeyValueStore on
-//     the browser's localStorage.
-//   - `Effect.catchCause` recovers from anything that went wrong in the
-//     steps before it. A "cause" covers typed failures (the store's own
-//     error) and also defects (something threw), which `Effect.catch` would
-//     not see. Whatever happened, the app starts with the defaults.
-// The order of the two steps matters, for the reason in the NOTE above.
-export const flags: Effect.Effect<Flags> = Effect.gen(function* () {
-  const store = yield* KeyValueStore.KeyValueStore
-  const maybeJson = Option.fromNullishOr(yield* store.get(STORAGE_KEY))
-
-  return { preferences: preferencesFromJson(maybeJson) }
-}).pipe(
-  Effect.provide(BrowserKeyValueStore.layerLocalStorage),
-  Effect.catchCause(() => Effect.succeed({ preferences: DEFAULT_PREFERENCES })),
-)
-
 // The text shown in the A4 field for an applied value.
 const a4ToInput = (a4: number): string => `${a4}`
 
 // `init` builds the first Model. Its type, `Runtime.RoutingApplicationInit<
-// Model, Message, Flags>`, is a function from the Flags and the address the
-// app was opened at to the same kind of record that `update` returns:
-// `{ model }`, with `commands` beside it if anything should run at start-up.
-// Nothing needs to here. The tuner starts Off, and the microphone opens only
-// when the person asks for it.
+// Model, Message>`, is a function from the address the app was opened at to
+// the same kind of record that `update` returns: `{ model }`, with
+// `commands` beside it for anything that should run at start-up.
 //
-// The address is the second argument because the app has routing: an app
-// without it has the type `Runtime.ApplicationInit`, and its `init` takes
-// the Flags alone. `urlToAppRoute` turns the address into the first route,
-// so someone who opens `/how-to` directly starts on that page.
+// The address is the argument because the app has routing: an app without
+// it has the type `Runtime.ApplicationInit`, and its `init` takes nothing.
+// `urlToAppRoute` turns the address into the first route, so someone who
+// opens `/how-to` directly starts on that page.
+//
+// The first Model is the same for everyone: the tuner Off, and the default
+// tuning and A4. It has to be. `init` runs twice for each page: once in the
+// build, which draws the page into an HTML file (src/entry.server.ts), and
+// once in the browser, which takes that HTML over. The two must build the
+// same Model, or the browser would find a page that does not match what it
+// was about to draw. The build has no visitor and no localStorage, so
+// nothing a visitor saved can be in the first Model.
+//
+// What a returning visitor saved is read straight afterwards, by the one
+// Command returned here. The runtime runs Commands in the browser only, once
+// it has taken the page over, and LoadPreferences answers with a Message
+// that `update` applies (FINDINGS.md, "A prerendered page cannot start from
+// what the browser has saved").
+//
+// Foldkit has another place for start-up data, called Flags: a Schema
+// passed to `Runtime.makeApplication` and a value handed to `init` as an
+// extra first argument. This app used them for the saved preferences until
+// the pages were prerendered. In a prerendered app the Flags are written
+// into the HTML by the build and read back by the browser, so they can only
+// hold what the build knows.
 //
 // `Listbox.init` and `Popover.init` build the first Models of the two child
 // components. The `id` is the component's own: it builds the ids of its
@@ -421,19 +388,17 @@ const a4ToInput = (a4: number): string => `${a4}`
 //
 // In development `init` may not run after a reload, because Foldkit restores
 // the Model it saved instead. See the NOTE under SUBSCRIPTION.
-export const init: Runtime.RoutingApplicationInit<Model, Message, Flags> = (
-  { preferences },
-  url,
-) => ({
+export const init: Runtime.RoutingApplicationInit<Model, Message> = url => ({
   model: {
     route: urlToAppRoute(url),
     tuner: TunerState.Off(),
-    tuningId: preferences.tuningId,
-    a4: preferences.a4,
-    a4Input: a4ToInput(preferences.a4),
+    tuningId: DEFAULT_PREFERENCES.tuningId,
+    a4: DEFAULT_PREFERENCES.a4,
+    a4Input: a4ToInput(DEFAULT_PREFERENCES.a4),
     tuningListbox: Listbox.init({ id: 'tuning' }),
     a4Popover: Popover.init({ id: 'a4' }),
   },
+  commands: [LoadPreferences()],
 })
 
 // COMMAND
@@ -442,7 +407,7 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags> = (
 // cannot write to storage or call Sentry. It returns a Command instead, and
 // the runtime runs it and sends the result back into `update` as a Message.
 // In a Foldkit app, side effects live only in what the runtime runs: here
-// the Commands, the flags, the managed resource and the subscription. That
+// the Commands, the managed resource and the subscription. That
 // rule is what keeps `update` testable: a test checks which Commands came
 // back, and does not have to run them.
 //
@@ -466,13 +431,69 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags> = (
 // the page with its crash screen. So each `execute` ends by catching
 // everything and turning it into a Message.
 
+// NOTE: with site data blocked, reading `localStorage` throws while the
+// storage layer is being built, outside the typed error channel. Both
+// LoadPreferences and SavePreferences therefore provide the layer first and
+// catch the whole cause after it, so blocked storage means default
+// preferences and an unsaved choice, never a crash.
+
+// Reads the saved tuning and A4 from localStorage. `init` returns it, so it
+// runs once, when the app starts in the browser. It takes no arguments, so
+// there is no `args`. It has one result Message, which carries the
+// preferences, and the name starts with `Completed` because the Command
+// cannot fail in any way the app would act on: with nothing saved, with
+// something damaged saved, or with storage blocked, it answers with the
+// defaults.
+//
+// An `Effect` is a description of a computation, which produces a value
+// when it is run. Nothing below runs when this module is loaded, or when
+// `LoadPreferences()` is called: the runtime runs the Effect.
+//
+// `Effect.gen(function* () { ... })` writes an Effect in the style of
+// async/await. `yield*` runs another Effect and gives back its result.
+//   - `yield* KeyValueStore.KeyValueStore` asks for a service. This is
+//     Effect's dependency injection: the code says "whichever key-value store
+//     has been provided" and does not name localStorage.
+//   - `store.get(key)` is an Effect that gives the stored string, or
+//     undefined. `Option.fromNullishOr` turns that into an `Option`.
+//   - `preferencesFromJson` (src/preferences.ts) checks what it is given and
+//     falls back to the default for anything missing or damaged.
+//
+// `x.pipe(a, b)` passes `x` through `a`, then the result through `b`.
+//   - `Effect.provide(layer)` supplies the service asked for above. A Layer
+//     is a recipe for building a service. This one builds a KeyValueStore on
+//     the browser's localStorage.
+//   - `Effect.catchCause` recovers from anything that went wrong in the
+//     steps before it. A "cause" covers typed failures (the store's own
+//     error) and also defects (something threw), which `Effect.catch` would
+//     not see.
+// The order of the two steps matters, for the reason in the NOTE above.
+export const LoadPreferences = Command.define('LoadPreferences', {
+  messages: [Message.CompletedLoadPreferences],
+  execute: Effect.gen(function* () {
+    const store = yield* KeyValueStore.KeyValueStore
+    const maybeJson = Option.fromNullishOr(yield* store.get(STORAGE_KEY))
+
+    return Message.CompletedLoadPreferences({
+      preferences: preferencesFromJson(maybeJson),
+    })
+  }).pipe(
+    Effect.provide(BrowserKeyValueStore.layerLocalStorage),
+    Effect.catchCause(() =>
+      Effect.succeed(
+        Message.CompletedLoadPreferences({ preferences: DEFAULT_PREFERENCES }),
+      ),
+    ),
+  ),
+})
+
 // Writes the chosen tuning and A4 to localStorage, so that the next visit
 // starts with them. The args are the two values to save, which `update`
 // takes from the Model. In the `messages` list,
 // `Message.SucceededSavePreferences` has no call brackets: each constructor
 // is also the Schema of its variant, and it is the Schema that is listed.
 //
-// The body mirrors `flags` above. Ask for the store, write, and say that it
+// The body mirrors LoadPreferences above. Ask for the store, write, and say that it
 // worked; then provide the localStorage layer; then catch everything. A
 // write that fails (storage blocked or full) becomes FailedSavePreferences,
 // which `update` ignores: the choice still holds for this visit.
@@ -938,6 +959,19 @@ export const update = (model: Model, message: Message) =>
 
     // The A4 field changed: see `applyA4Input`.
     UpdatedA4Input: ({ value }) => applyA4Input(model, value),
+
+    // The saved preferences have been read (see `init`). They replace the
+    // defaults the Model started with. `a4Input`, the text in the A4 field,
+    // is set from the same number so that the field and the value agree.
+    // With nothing saved the Command answers with the defaults, and this
+    // writes the same values again.
+    CompletedLoadPreferences: ({ preferences }) => ({
+      model: modifyFields(model, {
+        tuningId: () => preferences.tuningId,
+        a4: () => preferences.a4,
+        a4Input: () => a4ToInput(preferences.a4),
+      }),
+    }),
 
     // The results of SavePreferences and ReportProblem. None of them
     // changes the Model. A failed save is not reported to Sentry, on

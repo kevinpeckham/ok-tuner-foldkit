@@ -90,6 +90,7 @@ import { Listbox, Popover } from '@foldkit/ui'
 import {
   FocusPageHeading,
   LoadExternal,
+  LoadPreferences,
   Message,
   type Model,
   NavigateInternal,
@@ -116,7 +117,7 @@ import { AppRoute } from './route'
 // app.
 //
 // An app with routing is started at an address, so `init` takes one as its
-// second argument, after the flags. `urlOf` builds it: `fromString` returns
+// argument. `urlOf` builds it: `fromString` returns
 // an Option, since a string may not be an address at all, and every string
 // in this file is one.
 const urlOf = (raw: string) =>
@@ -128,10 +129,7 @@ const urlOf = (raw: string) =>
 const tunerUrl = urlOf('http://localhost/')
 const howToUrl = urlOf('http://localhost/how-to')
 
-const offModel: Model = init(
-  { preferences: DEFAULT_PREFERENCES },
-  tunerUrl,
-).model
+const offModel: Model = init(tunerUrl).model
 
 // The off Model with its `tuner` field swapped for another state.
 const withTuner = (tuner: TunerState): Model =>
@@ -202,35 +200,72 @@ const readingOf = (next: Model): Option.Option<number> =>
     Failed: () => Option.none(),
   })
 
-// `init` builds the first Model from the Flags: the start-up data the app
-// reads before it begins, here the saved tuning and A4. It is called
-// directly. No Message has been sent yet, so there is nothing for a story to
-// drive.
+// `init` builds the first Model from the address the app was opened at. It
+// is called directly. No Message has been sent yet, so there is nothing for
+// a story to drive.
 describe('init', () => {
-  // A first visit: nothing is saved, so the defaults apply. `a4Input` is the
-  // text in the A4 field. It is kept apart from the number `a4` so the field
-  // can hold text that is not a valid pitch while the person is typing.
-  // Union values are plain data, so `toEqual` against a freshly built
-  // `TunerState.Off()` compares them by structure.
-  test('with default preferences it starts off, on standard tuning, with A4 at 440', () => {
+  // The first Model is the same for every visitor, and the same in the build
+  // that prerenders the page as in the browser: the defaults. `a4Input` is
+  // the text in the A4 field. It is kept apart from the number `a4` so the
+  // field can hold text that is not a valid pitch while the person is
+  // typing. Union values are plain data, so `toEqual` against a freshly
+  // built `TunerState.Off()` compares them by structure.
+  test('it starts off, on standard tuning, with A4 at 440', () => {
     expect(offModel.tuner).toEqual(TunerState.Off())
     expect(offModel.tuningId).toBe('standard')
     expect(offModel.a4).toBe(440)
     expect(offModel.a4Input).toBe('440')
   })
 
-  // A returning visitor gets their saved tuning and A4 back. The tuner still
-  // starts off: the microphone is never asked for without a press.
-  test('it takes the tuning and A4 from the flags', () => {
-    const fromFlags = init(
-      { preferences: { tuningId: 'bass', a4: 442 } },
-      tunerUrl,
-    ).model
+  // What a returning visitor saved is read afterwards, by a Command that
+  // `init` returns: `init` gives back `{ model, commands }`, as `update`
+  // does. `toEqual` compares the list with one built here, so this pins that
+  // LoadPreferences is the only Command.
+  test('it asks for the saved preferences, and nothing else', () => {
+    expect(init(tunerUrl).commands).toEqual([LoadPreferences()])
+  })
+})
 
-    expect(fromFlags.tuningId).toBe('bass')
-    expect(fromFlags.a4).toBe(442)
-    expect(fromFlags.a4Input).toBe('442')
-    expect(fromFlags.tuner).toEqual(TunerState.Off())
+// The saved tuning and A4 arrive after start-up, as the result of the
+// LoadPreferences Command (FINDINGS.md, "A prerendered page cannot start
+// from what the browser has saved"). What the Command itself does with
+// `localStorage` is tested for real in storage.test.ts.
+describe('saved preferences', () => {
+  // A returning visitor gets their tuning and A4 back. The tuner stays off:
+  // the microphone is never asked for without a press.
+  test('the saved tuning and A4 replace the defaults', () => {
+    story(
+      update,
+      given(offModel),
+      message(
+        Message.CompletedLoadPreferences({
+          preferences: { tuningId: 'bass', a4: 442 },
+        }),
+      ),
+      model(next => {
+        expect(next.tuningId).toBe('bass')
+        expect(next.a4).toBe(442)
+        expect(next.a4Input).toBe('442')
+        expect(next.tuner).toEqual(TunerState.Off())
+      }),
+      Command.expectNone(),
+    )
+  })
+
+  // A first visit: nothing is saved, the Command answers with the defaults,
+  // and the Model is as it was.
+  test('with nothing saved, nothing changes', () => {
+    story(
+      update,
+      given(offModel),
+      message(
+        Message.CompletedLoadPreferences({ preferences: DEFAULT_PREFERENCES }),
+      ),
+      model(next => {
+        expect(next).toEqual(offModel)
+      }),
+      Command.expectNone(),
+    )
   })
 })
 
@@ -927,17 +962,11 @@ describe('routing', () => {
   // `init` reads the address the app was opened at, so a visitor who opens
   // the how-to page directly lands on it.
   test('the app starts on the page its address names', () => {
-    const preferences = DEFAULT_PREFERENCES
-
-    expect(init({ preferences }, tunerUrl).model.route).toEqual(
-      AppRoute.Tuner(),
+    expect(init(tunerUrl).model.route).toEqual(AppRoute.Tuner())
+    expect(init(howToUrl).model.route).toEqual(AppRoute.HowTo())
+    expect(init(urlOf('http://localhost/nope')).model.route).toEqual(
+      AppRoute.NotFound({ path: '/nope' }),
     )
-    expect(init({ preferences }, howToUrl).model.route).toEqual(
-      AppRoute.HowTo(),
-    )
-    expect(
-      init({ preferences }, urlOf('http://localhost/nope')).model.route,
-    ).toEqual(AppRoute.NotFound({ path: '/nope' }))
   })
 
   // An internal link is one to an address of this app. The runtime has

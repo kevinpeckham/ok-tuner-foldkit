@@ -127,7 +127,6 @@ import {
   update,
 } from './main'
 import { REFUSED } from './microphone'
-import { DEFAULT_PREFERENCES } from './preferences'
 import { AppRoute, PAGE_HEADING_ID } from './route'
 import { view } from './view'
 
@@ -137,8 +136,8 @@ import { view } from './view'
 // `story.test.ts`. `Option` is Effect's type for a value that may be
 // missing: `Option.some(value)` or `Option.none()`.
 
-// `init` takes the address the app is opened at, after the flags, because
-// the app has routing. `fromString` returns an Option, since a string may
+// `init` takes the address the app is opened at, because the app has
+// routing. `fromString` returns an Option, since a string may
 // not be an address at all. This one is.
 const urlOf = (raw: string) =>
   Option.getOrThrowWith(
@@ -146,10 +145,7 @@ const urlOf = (raw: string) =>
     () => new Error(`Not an address: ${raw}`),
   )
 
-const offModel: Model = init(
-  { preferences: DEFAULT_PREFERENCES },
-  urlOf('http://localhost/'),
-).model
+const offModel: Model = init(urlOf('http://localhost/')).model
 
 // The fields of the `Listening` state, each optional, without its `_tag`.
 type ListeningFields = Partial<Omit<typeof TunerState.Listening.Type, '_tag'>>

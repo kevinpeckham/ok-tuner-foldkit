@@ -4,10 +4,8 @@ import './instrument'
 import { Runtime } from 'foldkit'
 
 import {
-  Flags,
   Message,
   Model,
-  flags,
   init,
   managedResources,
   subscriptions,
@@ -63,11 +61,7 @@ const application = Runtime.makeApplication({
   // The Schema of the Model. The runtime uses it in development, to save the
   // Model before a reload and to restore it afterwards.
   Model,
-  // The Schema of the Flags, the data read at start-up. Its presence is what
-  // says the app has any: `init` then takes the flags as its argument, and
-  // `Runtime.run` must be given an Effect that produces them.
-  Flags,
-  // Builds the first Model from the flags.
+  // Builds the first Model, from the address the page was opened at.
   init,
   // (Model, Message) -> the next Model and Commands. The runtime calls it
   // for every Message, one at a time, and runs the Commands it returns.
@@ -127,14 +121,13 @@ const application = Runtime.makeApplication({
   },
 })
 
-// Starts the app, for as long as the page lives. The runtime runs the `flags`
-// Effect (the saved preferences, read from localStorage), calls `init` with
-// the result and the page's address, renders the first Model into the container, and begins the
-// loop. `run` returns nothing: from here on everything happens inside the
-// runtime.
+// Starts the app, for as long as the page lives. The runtime calls `init`
+// with the page's address, renders the first Model into the container, runs
+// the Command that `init` returned, and begins the loop. `run` returns
+// nothing: from here on everything happens inside the runtime.
 //
 // In development there is one difference. When Vite reloads the page after
 // an edit, Foldkit's Vite plugin hands back the Model it saved, and the
-// runtime starts from that without running `flags` or `init` (FINDINGS.md,
-// "In development the page can boot already 'listening'").
-Runtime.run(application, { flags })
+// runtime starts from that without running `init` (FINDINGS.md, "In
+// development the page can boot already 'listening'").
+Runtime.run(application)

@@ -32,9 +32,11 @@
 ### Task 1: Preferences by Command
 
 **Files:**
+
 - Modify: `src/main.ts`, `src/entry.ts`, `src/story.test.ts`, `src/scene.test.ts`, `src/sentry.test.ts`, `src/storage.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `init: Runtime.RoutingApplicationInit<Model, Message>`, called as `init(url)`. The Model starts on `DEFAULT_PREFERENCES`, and `commands` is exactly `[LoadPreferences()]`.
   - `LoadPreferences`: a Command with no arguments. It reads `STORAGE_KEY` from `localStorage` and ends in `Message.CompletedLoadPreferences({ preferences })`, with `DEFAULT_PREFERENCES` when storage is blocked or holds nothing usable.
@@ -53,11 +55,13 @@
 ### Task 2: The server entry and the build
 
 **Files:**
+
 - Create: `src/entry.server.ts`, `src/entry.server.test.ts`, `src/vite-env.d.ts`
 - Modify: `src/entry.ts`, `vite.config.ts`, `vercel.json`
 - Delete: `index.html`
 
 **Interfaces:**
+
 - Produces: `prerenderPaths: ReadonlyArray<string>` (`[tunerRouter(), howToRouter()]`); `renderPage(request: Request): Promise<Server.EntryResult>`; `renderDocument: Server.DocumentRenderer`, whose head carries the three icon links and `<meta name="robots" content="noindex" />`.
 
 - [ ] **Step 1: Write `src/entry.server.test.ts`:** `prerenderPaths` equals `['/', '/how-to']`. If `renderPage` can run under Vitest (it needs a build id), also: `/how-to` renders the heading "How to use the tuner" and the title `How to use the tuner | OK Tuner`. If it cannot, say so in the test file and rely on Step 4.
@@ -69,6 +73,7 @@
 ### Task 3: The 404 page
 
 **Files:**
+
 - Create: `public/404.html`
 
 - [ ] **Step 1: Write the page:** no script; the heading "OK Tuner", "Page not found", a link to `/` named "Back to the tuner", `noindex`, the site's colours inline.
@@ -78,6 +83,7 @@
 ### Task 4: Proof and docs
 
 **Files:**
+
 - Modify: `README.md`, `AGENTS.md`, `FINDINGS.md`, `docs/backlog.md`
 
 - [ ] **Step 1: Restart the dev server** (`systemctl --user restart ok-tuner-dev`) and check it serves `/` and `/how-to` as rendered HTML.

@@ -4,9 +4,13 @@
 // file is the other half. It runs the two Effects in `src/main.ts` that touch
 // the browser's `localStorage` and checks what they do:
 //
-// - `flags`, the Effect the Foldkit runtime runs at start-up, before `init`,
-//   to read the saved tuning and A4.
+// - `LoadPreferences`, the Command that `init` returns, to read the saved
+//   tuning and A4 once the app has started.
 // - `SavePreferences`, the Command that `update` returns when either changes.
+//
+// A Command made by `Command.define` carries its Effect in `.effect`, so a
+// test can run it with `Effect.runPromise` and look at the Message it ends
+// in.
 //
 // These are plain Vitest tests: nothing here uses Story or Scene. Vitest
 // runs them in happy-dom (`vitest.config.ts`), which supplies a working
@@ -23,7 +27,7 @@
 import { Effect } from 'effect'
 import { afterEach, describe, expect, test } from 'vitest'
 
-import { Message, SavePreferences, flags } from './main'
+import { LoadPreferences, Message, SavePreferences } from './main'
 import { DEFAULT_PREFERENCES, STORAGE_KEY } from './preferences'
 
 // The test environment's real `localStorage` property, kept so that
@@ -52,26 +56,36 @@ afterEach(() => {
   localStorage.clear()
 })
 
-describe('flags', () => {
+// The Command never fails: whatever happens it ends in
+// `CompletedLoadPreferences`, carrying the saved values or the defaults.
+describe('LoadPreferences', () => {
   // `Effect.runPromise(effect)` runs an Effect and returns a Promise of its
   // result. An Effect is only a description of work until something runs it.
   // In the app the Foldkit runtime does that. In a test, this call does.
   test('reads the saved tuning and A4', async () => {
     localStorage.setItem(STORAGE_KEY, '{"tuningId":"bass","a4":442}')
 
-    expect(await Effect.runPromise(flags)).toEqual({
-      preferences: { tuningId: 'bass', a4: 442 },
-    })
+    expect(await Effect.runPromise(LoadPreferences().effect)).toEqual(
+      Message.CompletedLoadPreferences({
+        preferences: { tuningId: 'bass', a4: 442 },
+      }),
+    )
   })
 
-  // Blocked storage must not stop the tuner from starting. `flags` catches
-  // the failure and answers with the default preferences.
-  test('with site storage blocked, the tuner starts on the defaults', async () => {
+  test('with nothing saved, it answers with the defaults', async () => {
+    expect(await Effect.runPromise(LoadPreferences().effect)).toEqual(
+      Message.CompletedLoadPreferences({ preferences: DEFAULT_PREFERENCES }),
+    )
+  })
+
+  // The case this file exists for. Reading the `localStorage` property
+  // throws, and the page must still start, on the defaults.
+  test('with site storage blocked, it answers with the defaults', async () => {
     blockStorage()
 
-    expect(await Effect.runPromise(flags)).toEqual({
-      preferences: DEFAULT_PREFERENCES,
-    })
+    expect(await Effect.runPromise(LoadPreferences().effect)).toEqual(
+      Message.CompletedLoadPreferences({ preferences: DEFAULT_PREFERENCES }),
+    )
   })
 })
 
