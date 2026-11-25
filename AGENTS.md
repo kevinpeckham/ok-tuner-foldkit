@@ -27,7 +27,15 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 
 ### Pages
 
-The app has routing: the routes are in `src/route.ts`, and the route is a field of the Model. To add a page, add its route and router there, a view under `src/page/`, and its case in `pageTitle` and `view` in `src/view.ts` (the compiler asks for both, and for the case in `enterRoute` in `src/main.ts`). Nothing asks for the router to be listed in `Route.oneOf` in `urlToAppRoute`: leave it out and the page shows "Page not found", so add a row to `src/route.test.ts`. Nothing asks for its path in `prerenderPaths` in `src/entry.server.ts` either: leave it out and opening the address directly is a 404. Give one heading on the page `pageHeadingAttributes`, which is where focus moves when the page appears. Links are plain `<a>` elements built with `textLink` and a router, never a typed-out path. A link to another site is the same element with a full address: the runtime tells the two apart. Addresses used in more than one place are constants in `src/site.ts`. The footer (`src/footer.ts`) is drawn under every page by `view`, outside the `<main>`. Only `ChangedUrl` sets the route. A Scene test cannot follow a link: see `FINDINGS.md` for how navigation is tested.
+The app has routing: the routes are in `src/route.ts`, and the route is a field of the Model. To add a page, add its route and router there, a view under `src/page/`, and its case in `pageTitle` and `view` in `src/view.ts` (the compiler asks for both, and for the case in `enterRoute` in `src/main.ts`). Nothing asks for the router to be listed in `Route.oneOf` in `urlToAppRoute`: leave it out and the page shows "Page not found", so add a row to `src/route.test.ts`. Nothing asks for its path in `prerenderPaths` in `src/entry.server.ts` either: leave it out and opening the address directly is a 404. Give the page one `<h1>` with `pageHeadingAttributes`, which is where focus moves when the page appears. Links are plain `<a>` elements built with `textLink` and a router, never a typed-out path. A link to another site is the same element with a full address: the runtime tells the two apart. Addresses used in more than one place are constants in `src/site.ts`. The header (`src/header.ts`) and the footer (`src/footer.ts`) are drawn over and under every page by `view`, outside the `<main>`. Every page has exactly one `<h1>`, which names the page and carries `pageHeadingAttributes`. "OK Tuner" is the brand link in the header, never a heading. Only `ChangedUrl` sets the route. A Scene test cannot follow a link: see `FINDINGS.md` for how navigation is tested.
+
+### Privacy
+
+The footer says the site is ad-free and privacy-respecting, and `/privacy` (`src/page/privacy.ts`) says exactly what leaves the browser: error reports to Sentry, and page-view counts to Vercel Web Analytics. Keep both true.
+
+- A change that alters what leaves the browser changes the Privacy page in the same commit. Ask Kevin before adding anything new that does.
+- Visits are counted on the production hostnames only (`countsVisitsFrom` in `src/analytics.ts`). Only that file and its test import `@vercel/analytics`.
+- No adverts, no advertising or cross-site trackers, no cookies, no accounts.
 
 ### Version
 
@@ -58,7 +66,7 @@ The build writes each page as an HTML file (`src/entry.server.ts`), and the brow
 ### Error reporting
 
 - Sentry project `ok-tuner` in the `lightning-jar` organisation. Only `src/sentry.ts` and its test import `@sentry/browser`.
-- Errors only: a visit where nothing goes wrong sends nothing. Do not add tracing, replay, the session integration, or anything that identifies a visitor.
+- Errors only: a visit where nothing goes wrong sends Sentry nothing. Do not add tracing, replay, the session integration, or anything that identifies a visitor.
 - `@sentry/vite-plugin` must stay at 11.16.0 or later. Earlier versions bundle an upload tool (`sentry` 0.49.0) that, on Vite 8, adds a line to the uploaded copy of the bundle, so every stack frame in Sentry resolves one line off ([sentry-javascript #26658](https://github.com/getsentry/sentry-javascript/issues/26658)). After changing its version, send a test report from production and check that its frames name files under `src/`.
 - A caught failure worth reporting is reported by a Command returned from `update` (`ReportProblem`), not from inside the code that caught it. A person's own choice (refusing the microphone, blocking storage) is not reported.
 - Reports are sent only from our own hosts (`reportsFrom` in `src/sentry.ts`): production (`www.oktuner.com`, the bare domain and the two Vercel addresses) and the dev server at `ok-tuner.bench.lj.dev`, tagged `development`. `localhost` and Vercel previews report nothing. Resolve test issues you create.

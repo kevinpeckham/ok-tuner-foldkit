@@ -16,6 +16,7 @@ describe('pageTitle', () => {
     [AppRoute.Tuner(), 'OK Tuner | Chromatic Instrument Tuner'],
     [AppRoute.HowTo(), 'How to use the tuner | OK Tuner'],
     [AppRoute.BuiltWith(), 'Built with | OK Tuner'],
+    [AppRoute.Privacy(), 'Privacy | OK Tuner'],
     [AppRoute.NotFound({ path: '/nope' }), 'Page not found | OK Tuner'],
   ])('%o is titled %s', (route, title) => {
     expect(pageTitle(route)).toBe(title)

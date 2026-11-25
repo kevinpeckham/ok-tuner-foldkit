@@ -13,6 +13,7 @@ import {
   AppRoute,
   builtWithRouter,
   howToRouter,
+  privacyRouter,
   tunerRouter,
   urlToAppRoute,
 } from './route'
@@ -33,6 +34,7 @@ describe('the routers', () => {
     expect(tunerRouter()).toBe('/')
     expect(howToRouter()).toBe('/how-to')
     expect(builtWithRouter()).toBe('/built-with')
+    expect(privacyRouter()).toBe('/privacy')
   })
 })
 
@@ -60,6 +62,12 @@ describe('urlToAppRoute', () => {
       expect(urlToAppRoute(urlOf(raw))).toStrictEqual(AppRoute.BuiltWith())
     },
   )
+
+  test('http://localhost/privacy is the privacy page', () => {
+    expect(urlToAppRoute(urlOf('http://localhost/privacy'))).toStrictEqual(
+      AppRoute.Privacy(),
+    )
+  })
 
   // Anything else is NotFound, which carries the path so the page can say
   // what was asked for. A longer path is not the how-to page, and neither is

@@ -69,12 +69,15 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 - **The script is downloaded again after every deploy,** because its name carries a build id that is random per build. A fixed build id per commit, if Foldkit's plugin takes one, would let an unchanged script stay cached.
 - **The title is tested as `pageTitle`, not as what `view` returns.** A `view` that ignored `pageTitle` would pass every test.
 - **No automated test clicks through.** Nothing covers the `routing` option in `entry.ts` or what the two navigation Commands do when run. The check is by hand in headless Chrome.
-- **Every page's first heading is "OK Tuner".** The page's own name is the second. Whether the page name should be the first is a design choice.
+
+## Look
+
+- **Custom device skins for the tuner.** Other faces for the pedal, chosen by the person and remembered with the tuning and A4.
+- **A color-splash background** behind the tuner, in place of the flat dark ground.
 
 ## Page content
 
 - **Ad-free and tracker-free, in the title.** Update the page title to say so.
-- **Ad-free and tracker-free, in the copy.** Add a line to the page saying so.
 - **A custom crash screen** in place of Foldkit's default, which is written for developers.
 - **A microphone error whose message is only spaces** shows an empty alert. Fall back to the plain sentence.
 - **Font.** The system font is fine for now; may be revisited.
@@ -83,7 +86,6 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 
 ## Going public
 
-- **Vercel Analytics.** Integrate it. It counts visits without cookies, but it does send every visit to Vercel, so decide it together with the "ad-free, ad-tracker-free" wording and allow its origin in the Content Security Policy.
 - **Make the page crawlable.** Remove `noindex` from `vercel.json` and from `DOCUMENT_HEAD` in `src/entry.server.ts`. (The 404 page can keep it: add it back for that page alone.) The pages are already prerendered, so crawlers get content without running JavaScript. Give each page a canonical address while there.
 - **Open Graph:** title, description and a share image.
 - **Content Security Policy** and the other security headers, in `vercel.json`. The one third-party origin to allow is Sentry's ingest host, `https://o4505247956860928.ingest.us.sentry.io`, so the policy can be strict.

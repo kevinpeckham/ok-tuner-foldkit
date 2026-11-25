@@ -269,7 +269,7 @@ describe('power', () => {
       given(offModel),
       // `expect(locator)` followed by a matcher makes one assertion step.
       // `toExist` passes when the locator finds an element.
-      expect(role('heading', { name: 'OK Tuner' })).toExist(),
+      expect(role('heading', { name: 'Tuner' })).toExist(),
       // `toHaveAttr(name, value)` passes when the element has that attribute
       // with exactly that value. `aria-pressed="false"` is how a toggle
       // button tells a screen reader that it is off.
@@ -629,7 +629,7 @@ describe('pages', () => {
       given(onRoute(AppRoute.HowTo())),
       expect(howToHeading).toExist(),
       expect(text(/Nothing is recorded\./)).toExist(),
-      expect(role('heading', { name: 'Quick tips' })).toExist(),
+      expect(role('heading', { name: 'Quick tips', level: 2 })).toExist(),
       expect(backLink).toHaveAttr('href', '/'),
       expect(powerButton).toBeAbsent(),
     )
@@ -658,32 +658,99 @@ describe('pages', () => {
   // knows it by. When the
   // page changes, focus moves there and a screen reader reads it out
   // (FINDINGS.md, "A page change is silent unless the app moves focus").
-  test.each([
-    ['tuner', AppRoute.Tuner(), 'OK Tuner'],
+  //
+  // That heading is the page's one `<h1>`, and it names the page, not the
+  // site: a screen reader's list of headings then starts with where you
+  // are. Every page has exactly one.
+  const pages: ReadonlyArray<readonly [string, AppRoute, string]> = [
+    ['tuner', AppRoute.Tuner(), 'Tuner'],
     ['how-to', AppRoute.HowTo(), 'How to use the tuner'],
     ['built-with', AppRoute.BuiltWith(), 'Built with'],
+    ['privacy', AppRoute.Privacy(), 'Privacy'],
     ['not-found', AppRoute.NotFound({ path: '/nope' }), 'Page not found'],
-  ])('the %s page has one heading for focus to move to', (_, route, name) => {
+  ]
+
+  test.each(pages)(
+    'the %s page has one first-level heading, which names it and takes focus',
+    (_, route, name) => {
+      scene(
+        { update, view },
+        given(onRoute(route)),
+        expect(role('heading', { name, level: 1 })).toHaveAttr(
+          'id',
+          PAGE_HEADING_ID,
+        ),
+        expect(role('heading', { name, level: 1 })).toHaveAttr(
+          'tabIndex',
+          '-1',
+        ),
+        expectAll(all.role('heading', { level: 1 })).toHaveCount(1),
+        expectAll(all.selector(`#${PAGE_HEADING_ID}`)).toHaveCount(1),
+      )
+    },
+  )
+
+  // The site's name is not a heading. It is the brand, in the page's
+  // header, and a link to the home page. `role('banner')` is the `<header>`
+  // element when it sits outside `<main>`, as the footer's test explains
+  // for `contentinfo`.
+  test.each(pages)('the %s page has the brand in its header', (_, route) => {
     scene(
       { update, view },
       given(onRoute(route)),
-      expect(role('heading', { name })).toHaveAttr('id', PAGE_HEADING_ID),
-      expect(role('heading', { name })).toHaveAttr('tabIndex', '-1'),
-      expectAll(all.selector(`#${PAGE_HEADING_ID}`)).toHaveCount(1),
+      expect(
+        within(role('banner'), role('link', { name: 'OK Tuner' })),
+      ).toHaveAttr('href', '/'),
+      expect(role('heading', { name: 'OK Tuner' })).toBeAbsent(),
     )
   })
 
-  // The site's name is the first heading of every page.
-  test.each([
-    ['tuner', AppRoute.Tuner()],
-    ['how-to', AppRoute.HowTo()],
-    ['built-with', AppRoute.BuiltWith()],
-    ['not-found', AppRoute.NotFound({ path: '/nope' })],
-  ])('the %s page is headed OK Tuner', (_, route) => {
+  // The home page's heading is there for screen readers and for the
+  // outline of the page, and is not shown: the tuner needs no title above
+  // it. `sr-only` is Tailwind's class for "in the page, but not on screen".
+  test('the tuner page keeps its heading off screen, and says what it is', () => {
     scene(
       { update, view },
-      given(onRoute(route)),
-      expect(role('heading', { name: 'OK Tuner', level: 1 })).toExist(),
+      given(onRoute(AppRoute.Tuner())),
+      expect(role('heading', { name: 'Tuner', level: 1 })).toHaveClass(
+        'sr-only',
+      ),
+      expect(
+        text(
+          'A free chromatic tuner that works in the browser. For guitar, bass, ukulele and other stringed instruments.',
+        ),
+      ).toExist(),
+    )
+  })
+})
+
+// The Privacy page: what the site does with data, in plain words. The
+// footer's first row links to it.
+describe('privacy page', () => {
+  const privacy = modifyFields(offModel, { route: () => AppRoute.Privacy() })
+
+  test('says what is and is not collected, and by whom', () => {
+    scene(
+      { update, view },
+      given(privacy),
+      expect(role('heading', { name: 'Privacy', level: 1 })).toExist(),
+      expect(role('heading', { name: 'Your microphone', level: 2 })).toExist(),
+      expect(role('heading', { name: 'Error reports', level: 2 })).toExist(),
+      expect(role('heading', { name: 'Visitor counts', level: 2 })).toExist(),
+      expect(role('link', { name: 'Sentry' })).toHaveAttr(
+        'href',
+        'https://sentry.io',
+      ),
+      expect(role('link', { name: 'Vercel Web Analytics' })).toHaveAttr(
+        'href',
+        'https://vercel.com/docs/analytics/privacy-policy',
+      ),
+      expect(text(/no cookies/i)).toExist(),
+      expect(role('link', { name: 'Back to the tuner' })).toHaveAttr(
+        'href',
+        '/',
+      ),
+      expect(role('button', { name: 'On / Off' })).toBeAbsent(),
     )
   })
 })
@@ -699,10 +766,10 @@ describe('built-with page', () => {
     scene(
       { update, view },
       given(builtWith),
-      expect(role('heading', { name: 'Built with', level: 2 })).toExist(),
-      expect(role('heading', { name: 'The app', level: 3 })).toExist(),
-      expect(role('heading', { name: 'Sound', level: 3 })).toExist(),
-      expect(role('heading', { name: 'Running it', level: 3 })).toExist(),
+      expect(role('heading', { name: 'Built with', level: 1 })).toExist(),
+      expect(role('heading', { name: 'The app', level: 2 })).toExist(),
+      expect(role('heading', { name: 'Sound', level: 2 })).toExist(),
+      expect(role('heading', { name: 'Running it', level: 2 })).toExist(),
       expect(role('link', { name: 'Foldkit' })).toHaveAttr(
         'href',
         'https://foldkit.dev',
@@ -734,12 +801,29 @@ describe('footer', () => {
     ['tuner', AppRoute.Tuner()],
     ['how-to', AppRoute.HowTo()],
     ['built-with', AppRoute.BuiltWith()],
+    ['privacy', AppRoute.Privacy()],
     ['not-found', AppRoute.NotFound({ path: '/nope' })],
   ])('the %s page has the footer, with its links', (_, route) => {
     scene(
       { update, view },
       given(modifyFields(offModel, { route: () => route })),
       expect(footer).toExist(),
+      // The first row: what kind of site this is, and a link to the page
+      // that backs the claim. On screen the link reads "Learn More". Its
+      // full name adds what it is about, for anyone who hears the link out
+      // of its sentence, in words that are in the page but not on screen.
+      expect(
+        within(
+          footer,
+          text(
+            /ad-free, open-source and privacy-respecting\. Safe for all ages\./,
+          ),
+        ),
+      ).toExist(),
+      expect(inFooter('Learn More about privacy')).toHaveAttr(
+        'href',
+        '/privacy',
+      ),
       // Row one: the copyright and license line, the Built With page, and
       // the code.
       expect(within(footer, text(/© 2026 Lightning Jar\./))).toExist(),

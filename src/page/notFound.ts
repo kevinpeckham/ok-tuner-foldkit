@@ -38,7 +38,7 @@ export const view = (h: HtmlBuilder<Message>): Html =>
     [
       // The heading that names this page: focus moves here when the page
       // appears (src/page/link.ts, `pageHeadingAttributes`).
-      h.h2(
+      h.h1(
         [
           ...pageHeadingAttributes(h),
           h.Class('mt-8 font-semibold text-slate-50 outline-none'),

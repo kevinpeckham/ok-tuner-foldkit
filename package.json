@@ -1,6 +1,6 @@
 {
   "name": "ok-tuner-foldkit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "@effect/platform-browser": "4.1.0",
     "@foldkit/ui": "0.170.0",
     "@sentry/browser": "11.14.0",
+    "@vercel/analytics": "2.0.1",
     "effect": "4.1.0",
     "foldkit": "0.170.0"
   },

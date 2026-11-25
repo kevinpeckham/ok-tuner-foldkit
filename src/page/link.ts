@@ -20,7 +20,7 @@ import { PAGE_HEADING_ID } from '../route'
 // The look of a link in running text: underlined, and brighter under the
 // pointer. The `focus-visible:` classes draw a ring when the link is
 // reached with the keyboard, and not when it is clicked.
-const LINK_CLASS =
+export const LINK_CLASS =
   'rounded-sm text-slate-100 underline underline-offset-4 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white'
 
 // The heading that names a page takes these two attributes, on every page.
@@ -31,7 +31,7 @@ const LINK_CLASS =
 //
 // The attributes are a function of the builder, like a view, because an
 // attribute is made with `h`. The result is spread into the heading's own
-// attribute list: `h.h2([...pageHeadingAttributes(h), h.Class('...')], ...)`.
+// attribute list: `h.h1([...pageHeadingAttributes(h), h.Class('...')], ...)`.
 // Each heading also carries the class `outline-none`: focus arrives here
 // from code, not from the Tab key, and a ring round a line of text would
 // suggest it can be pressed.

@@ -8,6 +8,22 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### Visits are counted, on the live site only (2026-11-25, analytics)
+
+- **Why.** Kevin asked for Vercel Web Analytics, with a Privacy page that says so. Until now the site sent nothing on a visit where nothing went wrong, and the README said so. It now sends one page view per page.
+- **What is sent,** by Vercel's documentation: the page, the referring site, the time, an approximate location, and the kind of device, operating system and browser. No cookie. Visitors are told apart by a hash of the request that is discarded after 24 hours.
+- **Where it runs.** On the production hostnames only. The script lives at `/_vercel/insights/script.js`, an address Vercel serves, so the dev server has nothing to load; and a preview is not the site. The package's own guess of "development" would load a debugging script from another site, so the mode is set by hand.
+- **Why it is not a Command.** Counting is not part of what the app does and nothing in the Model depends on it. The script reports page changes by itself, by watching the address. So it is one call in `src/entry.ts`, like starting Sentry.
+- **Where.** `src/analytics.ts`; `src/page/privacy.ts`; `AGENTS.md`, "Privacy".
+
+### Every page has its own first heading, and the site's name is a brand (2026-11-25, pages)
+
+- **Why.** Each page's `<h1>` was "OK Tuner", with the page's name second. Kevin asked for the page's name to be the `<h1>` and the site's name to be a brand in the header, linked to the home page. A screen reader's list of headings then starts with where you are.
+- **The home page's heading is not shown.** It is "Tuner", with Tailwind's `sr-only` class: the tuner needs no title above it. It is still where focus moves when you arrive from another page, so there is no visible sign of focus on arriving there. A screen reader reads it out.
+- **Landmarks.** The `<header>` and `<footer>` sit beside the `<main>`, not inside it, so they are the page's banner and contentinfo. Foldkit's Scene follows the same rule: `role('banner')` does not find a header inside `<main>`.
+- **"Learn More".** The footer's link reads "Learn More" on screen, and carries " about privacy" off screen, so that it means something in a list of links. The visible words come first, so voice control still finds it by them.
+- **Where.** `src/header.ts`, `src/footer.ts`, `view` in `src/view.ts`; 'pages' in `src/scene.test.ts`.
+
 ### The footer shows a version, not a commit (2026-11-25, footer)
 
 - **Why.** Stem Shovel's footer shows the version and the commit. A commit hash is a value from the build's environment, and a prerendered page needs every value to be the same in the build and in the browser, so it would have to be compiled into both. The version is already in `package.json`, which both read.
@@ -423,6 +439,12 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **What happens.** `.oxlintrc.json`, `.oxlintrc.effect.json` and `tsconfig.json` have `//` comments. oxlint 1.85.0, `tsc` 7 and oxfmt all accept them, and the lint rules were probed afterwards and still fire. A tool that reads these files as strict JSON would not; an editor without the oxc extension may underline them.
 
 ## Vercel and domains
+
+### Vercel Web Analytics is two switches (2026-11-25, Vercel)
+
+- **What it needs.** The package in the code, which adds the script tag, and Web Analytics enabled for the project in Vercel (the dashboard, or `vercel project web-analytics enable`). With only the first, the script's address answers 404 and nothing is counted.
+- **What the package offers a plain app.** `inject()`. Vercel's documentation says it has "no route support", which means it cannot group addresses with parameters under one route. It does report changes of page inside the app. This app's addresses have no parameters.
+- **Where.** `src/analytics.ts`.
 
 ### Vercel answers 403 to any address ending in `.map` (2026-11-25, Vercel)
 

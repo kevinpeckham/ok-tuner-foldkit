@@ -11,9 +11,10 @@ It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <htt
 - `src/microphone.ts`: opening and closing the microphone, and reading one measurement.
 - `src/main.ts`: the Model, Messages, `update`, the microphone as a managed resource, and the 50 ms readings as a subscription.
 - `src/entry.server.ts`: how the build writes each page as an HTML file. `src/entry.ts` is the browser's half, which takes that HTML over.
-- `src/route.ts`: the pages as routes: the tuner at `/`, "How to use the tuner" at `/how-to`, "Built with" at `/built-with`, and a not-found page.
+- `src/route.ts`: the pages as routes: the tuner at `/`, "How to use the tuner" at `/how-to`, "Built with" at `/built-with`, "Privacy" at `/privacy`, and a not-found page.
 - `src/sentry.ts`: everything that touches the Sentry SDK. `src/instrument.ts` starts it before the rest of the app loads.
-- `src/view.ts`: what every page shares, and the tuner's face. `src/page/` holds the other pages, and `src/footer.ts` the footer.
+- `src/view.ts`: what every page shares, and the tuner's face. `src/page/` holds the other pages, `src/header.ts` the brand at the top and `src/footer.ts` the footer.
+- `src/analytics.ts`: counting page views on the live site. Everything that touches `@vercel/analytics`.
 - `src/site.ts`: the version and the addresses the footer and the Built With page link to.
 
 The design and the implementation plan are in `docs/superpowers/`. Gotchas, and the reasons behind the less obvious choices, are in [`FINDINGS.md`](./FINDINGS.md). Planned work is in [`docs/backlog.md`](./docs/backlog.md).
@@ -60,14 +61,22 @@ SKIP_VARLOCK=1 bun run build
 
 Tests, lint and typecheck need neither.
 
+## Privacy
+
+Two things leave the browser, and the site's Privacy page (`src/page/privacy.ts`, at `/privacy`) tells visitors about both: error reports, and page-view counts. The microphone's sound never does.
+
+## Visitor counts
+
+The live site counts page views with [Vercel Web Analytics](https://vercel.com/docs/analytics) (`src/analytics.ts`). The script is served from the site's own address, sets no cookie, and is loaded on the production hostnames only: not on previews, the dev server or `localhost`. Web Analytics also has to be switched on for the project in Vercel.
+
 ## Error reporting
 
-Errors go to [Sentry](https://sentry.io), and nothing else does:
+Errors go to [Sentry](https://sentry.io), and nothing else goes there:
 
 - A crash (through Foldkit's `crash.report` hook) and any uncaught error.
 - A microphone that fails to open for a reason other than a refused permission or an unsupported browser. `update` returns a `ReportProblem` Command for it.
 
-A visit where nothing goes wrong sends nothing. There is no session tracking, tracing or replay, no cookies or user identifiers, and the SDK is told not to record the IP address. Refusing the microphone and blocking site storage are choices, not errors, and are not reported.
+A visit where nothing goes wrong sends Sentry nothing. There is no session tracking, tracing or replay, no cookies or user identifiers, and the SDK is told not to record the IP address. Refusing the microphone and blocking site storage are choices, not errors, and are not reported.
 
 An error report does carry the page URL, the browser's locale and timezone, and the clicks and console lines just before it. Sentry also adds an approximate location (country, sometimes a city) on its side, although it stores no IP address.
 

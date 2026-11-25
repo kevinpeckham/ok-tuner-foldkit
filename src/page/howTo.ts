@@ -61,7 +61,7 @@ export const view = (h: HtmlBuilder<Message>): Html =>
         [
           // The heading that names this page: focus moves here when the
           // page appears (src/page/link.ts, `pageHeadingAttributes`).
-          h.h2(
+          h.h1(
             [
               ...pageHeadingAttributes(h),
               h.Class('font-semibold text-slate-50 outline-none'),
@@ -74,7 +74,7 @@ export const view = (h: HtmlBuilder<Message>): Html =>
               'Turn the tuner on (the browser asks for the microphone once) and play a single string or note. The nearest note shows large, the needle reads how many cents sharp or flat it is (green within five), and the string of your tuning it is closest to lights up. Nothing is recorded.',
             ],
           ),
-          h.h3([h.Class('mt-5 font-semibold text-slate-50')], ['Quick tips']),
+          h.h2([h.Class('mt-5 font-semibold text-slate-50')], ['Quick tips']),
           h.ul(
             [h.Class('mt-3 list-disc space-y-2 pl-5')],
             Array.map(HOW_TO_TIPS, tip => h.li([], [tip])),

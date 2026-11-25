@@ -96,12 +96,12 @@ const GROUPS: ReadonlyArray<Group> = [
       {
         name: 'Vercel',
         url: 'https://vercel.com',
-        what: 'Builds and hosts the site. The pages are built ahead of time, so there is no server.',
+        what: 'Builds and hosts the site, and counts visits without cookies. The pages are built ahead of time, so there is no server.',
       },
       {
         name: 'Sentry',
         url: 'https://sentry.io',
-        what: 'Receives error reports, and nothing else: no visits are counted and nothing identifies you.',
+        what: 'Receives error reports, and nothing else. A visit where nothing goes wrong sends it nothing.',
       },
       {
         name: 'Varlock and 1Password',
@@ -163,7 +163,7 @@ const groupView = (group: Group, h: HtmlBuilder<Message>): Html =>
   h.section(
     [h.Class('mt-8')],
     [
-      h.h3([h.Class('font-semibold text-slate-50')], [group.title]),
+      h.h2([h.Class('font-semibold text-slate-50')], [group.title]),
       h.p([h.Class('mt-1 text-sm text-slate-300')], [group.blurb]),
       h.ul(
         [h.Class('mt-3 grid gap-2 sm:grid-cols-2')],
@@ -183,7 +183,7 @@ export const view = (h: HtmlBuilder<Message>): Html =>
     [
       // The heading that names this page: focus moves here when the page
       // appears (src/page/link.ts, `pageHeadingAttributes`).
-      h.h2(
+      h.h1(
         [
           ...pageHeadingAttributes(h),
           h.Class('mt-8 font-semibold text-slate-50 outline-none'),
