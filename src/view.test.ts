@@ -10,9 +10,8 @@ import { AppRoute } from './route'
 import { pageTitle } from './view'
 
 describe('pageTitle', () => {
-  // The tuner's title is the one written in index.html, which is what the
-  // tab shows before the script has run. The other pages put their own name
-  // first, so two tabs can be told apart.
+  // The tuner's page carries the site's full name. The other pages put
+  // their own name first, so two tabs can be told apart.
   test.each([
     [AppRoute.Tuner(), 'OK Tuner | Chromatic Instrument Tuner'],
     [AppRoute.HowTo(), 'How to use the tuner | OK Tuner'],

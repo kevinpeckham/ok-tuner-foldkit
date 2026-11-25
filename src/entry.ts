@@ -13,10 +13,17 @@ import {
 } from './main'
 import { reportCrash } from './sentry'
 import { view } from './view'
+// The stylesheet. Vite sees this import in a build, compiles the file with
+// the Tailwind plugin, writes it to a hashed file, and gives its address to
+// the document (src/entry.server.ts). Nothing is imported into the script:
+// the line is here only so that the build finds the stylesheet. The file
+// itself explains the theme.
+import './styles.css'
 
 // entry.ts: the one file that starts something.
 //
-// index.html loads this module and no other. Everything else under src is
+// Every page the build writes loads this module and no other (the build
+// adds the script tag: src/entry.server.ts). Everything else under src is
 // definitions. src/main.ts declares the Model, the Messages, `update` and the
 // rest, and src/view.ts declares the view, but neither of them runs anything.
 // This file gathers those definitions into one configuration, hands it to the
@@ -33,7 +40,7 @@ import { view } from './view'
 // returns, opens and closes the microphone, and starts and stops the
 // readings. The app's own code is only ever called by it.
 //
-// Reading order: this file first, then src/main.ts, where the eight names
+// Reading order: this file first, then src/main.ts, where the names
 // imported from it above are declared and explained, then src/view.ts.
 // src/instrument.ts explains the first import.
 
@@ -90,10 +97,12 @@ const application = Runtime.makeApplication({
     onUrlRequest: request => Message.ClickedLink({ request }),
     onUrlChange: url => Message.ChangedUrl({ url }),
   },
-  // The element the app is rendered into: `<div id="root">` in index.html.
-  // `getElementById` may return null, and Foldkit throws at once if it
-  // does. The element must have an id, which the runtime uses to tell this
-  // app's saved Model from another's across a development reload.
+  // The element the app would be rendered into if the page did not already
+  // hold it. It does: the build drew the app into the HTML, and marked its
+  // root, the <main>, for the runtime to find. So there is no element with
+  // this id, the call returns null, and Foldkit uses the root it found. The
+  // option is required all the same, and Foldkit's own prerendered example
+  // passes it this way.
   container: document.getElementById('root'),
   // What to do when the app crashes. Foldkit catches an error thrown in
   // `update`, in the view, in a Command, in a subscription or in a managed
@@ -121,13 +130,24 @@ const application = Runtime.makeApplication({
   },
 })
 
-// Starts the app, for as long as the page lives. The runtime calls `init`
-// with the page's address, renders the first Model into the container, runs
-// the Command that `init` returned, and begins the loop. `run` returns
-// nothing: from here on everything happens inside the runtime.
+// Starts the app, for as long as the page lives.
+//
+// `hydrate` and not `run`, because the page is already there: the build
+// drew it into the HTML file the browser has just loaded (see
+// src/entry.server.ts). `run` would draw the page from nothing into the
+// container. `hydrate` takes over the HTML it finds: it calls `init` with
+// the page's address, draws the first Model in memory, matches the result
+// to the elements in the page and keeps them, attaching their event
+// handlers. Then it runs the Command that `init` returned, which reads the
+// saved preferences, and begins the loop. From here on everything happens
+// inside the runtime.
+//
+// The takeover is strict. If the page holds no server-drawn root, or one
+// from another deployment's build, Foldkit stops and makes the page inert
+// sooner than run a script against HTML it does not match.
 //
 // In development there is one difference. When Vite reloads the page after
 // an edit, Foldkit's Vite plugin hands back the Model it saved, and the
 // runtime starts from that without running `init` (FINDINGS.md, "In
 // development the page can boot already 'listening'").
-Runtime.run(application)
+Runtime.hydrate(application)

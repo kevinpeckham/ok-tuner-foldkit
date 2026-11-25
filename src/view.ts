@@ -11,8 +11,10 @@
 // `Runtime.makeApplication`. When `update` returns a new Model (a different
 // object from the one it was given), the runtime calls `view` again, compares
 // the result with the previous one (a virtual DOM) and patches only the
-// differences into the page. The first render puts the view's root element,
-// the <main> below, in the place of the `#root` div of `index.html`. A
+// differences into the page. The very first render is different: the page
+// is already there, drawn by the build into the HTML file (the same `view`,
+// run by src/entry.server.ts), and the runtime takes those elements over
+// where another app would create them. A
 // Message that leaves the Model as it was draws nothing. Renders are batched:
 // however many Messages arrive between two animation frames, the view runs
 // once, with the latest Model. That matters here, because the tuner sends
@@ -333,20 +335,22 @@ const needleLeft = (needleCents: number): string => {
 //   title  the runtime writes it to `document.title` after a render, if it
 //          differs from the title showing. Here it changes with the page
 //          (`pageTitle` below).
-//   body   the Html of the page. On the first render its root element (the
-//          <main>) takes the place of the container, the `#root` div of
-//          index.html. After that the runtime patches it where it stands.
+//   body   the Html of the page. Its root element, the <main>, is the
+//          app's root in the document: the build writes it into the HTML
+//          file, and the runtime patches it where it stands.
 //
 // `Document` also has optional `lang`, `dir`, `canonical` and `ogUrl` fields.
 // They are left out here, and the runtime leaves alone what it is not given,
-// so the `lang="en"` written in index.html stays.
+// so the `lang="en"` that src/entry.server.ts gives the document stays.
 //
 // The title is a function of the route, and so is the page: both are an
 // exhaustive `AppRoute.match`, so a route added to src/route.ts stops this
 // file compiling until it has a title and a page.
 
-// The tuner's title repeats the static <title> of index.html. The other
-// pages put their own name first. `pageTitle` is exported for
+// The build writes each page's title into its HTML file from this, and the
+// runtime keeps the tab's title in step as the page changes. The tuner's
+// page carries the site's full name. The other pages put their own name
+// first. `pageTitle` is exported for
 // src/view.test.ts: a scene renders the body and cannot see the title.
 /** The text of the browser tab for each page. */
 export const pageTitle = (route: AppRoute): string =>
