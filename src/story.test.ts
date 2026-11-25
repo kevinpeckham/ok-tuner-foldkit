@@ -66,11 +66,16 @@ import { Array, Option } from 'effect'
 // The Story steps. `Command` here is Story's group of steps for pending
 // Commands (`Command.resolve`, `Command.expectExact` and so on). It is not
 // the `Command` module from `foldkit` that `main.ts` uses to define Commands.
+import { UrlRequest } from 'foldkit/navigation'
 import { Command, given, message, model, story } from 'foldkit/story'
 // `modifyFields(struct, { field: old => next })` returns a copy of a struct
 // with the named fields replaced. It is how this project changes a Model
 // without mutating it, in tests as in `update`.
 import { modifyFields } from 'foldkit/struct'
+// A `Url` is plain data, so a test builds one from a string with
+// `fromString`. `toString` prints one back, which is what a navigation
+// Command is given.
+import { fromString, toString as urlToString } from 'foldkit/url'
 import { describe, expect, test } from 'vitest'
 
 // The two Foldkit UI components the app embeds: the tuning picker is a
@@ -84,8 +89,10 @@ import { Listbox, Popover } from '@foldkit/ui'
 // `ReportProblem` are Command definitions: calling one with arguments builds
 // a Command.
 import {
+  LoadExternal,
   Message,
   type Model,
+  NavigateInternal,
   ReportProblem,
   SavePreferences,
   TunerState,
@@ -95,6 +102,7 @@ import {
 } from './main'
 import { MicrophoneFailure } from './microphone'
 import { DEFAULT_PREFERENCES } from './preferences'
+import { AppRoute } from './route'
 
 // FIXTURES
 //
@@ -106,7 +114,24 @@ import { DEFAULT_PREFERENCES } from './preferences'
 // `update` does, `{ model, commands? }`, so `.model` picks the Model out.
 // Building every fixture from the real `init` keeps them in step with the
 // app.
-const offModel: Model = init({ preferences: DEFAULT_PREFERENCES }).model
+//
+// An app with routing is started at an address, so `init` takes one as its
+// second argument, after the flags. `urlOf` builds it: `fromString` returns
+// an Option, since a string may not be an address at all, and every string
+// in this file is one.
+const urlOf = (raw: string) =>
+  Option.getOrThrowWith(
+    fromString(raw),
+    () => new Error(`Not an address: ${raw}`),
+  )
+
+const tunerUrl = urlOf('http://localhost/')
+const howToUrl = urlOf('http://localhost/how-to')
+
+const offModel: Model = init(
+  { preferences: DEFAULT_PREFERENCES },
+  tunerUrl,
+).model
 
 // The off Model with its `tuner` field swapped for another state.
 const withTuner = (tuner: TunerState): Model =>
@@ -197,7 +222,10 @@ describe('init', () => {
   // A returning visitor gets their saved tuning and A4 back. The tuner still
   // starts off: the microphone is never asked for without a press.
   test('it takes the tuning and A4 from the flags', () => {
-    const fromFlags = init({ preferences: { tuningId: 'bass', a4: 442 } }).model
+    const fromFlags = init(
+      { preferences: { tuningId: 'bass', a4: 442 } },
+      tunerUrl,
+    ).model
 
     expect(fromFlags.tuningId).toBe('bass')
     expect(fromFlags.a4).toBe(442)
@@ -882,6 +910,159 @@ describe('tuning', () => {
         [Listbox.UnlockScroll, Listbox.Message.CompletedUnlockScroll()],
         [Listbox.RestoreInert, Listbox.Message.CompletedRestoreInert()],
       ),
+    )
+  })
+})
+
+// Routing: which page is showing. The route is a field of the Model, and two
+// Messages from the runtime move it (src/main.ts, ROUTING in the header):
+//   - `ClickedLink`, when a link in the page is clicked. `update` answers
+//     with a Command that changes the address. The route does not change yet.
+//   - `ChangedUrl`, when the address has changed, for any reason: that
+//     Command, or the browser's back and forward buttons. This is the one
+//     place the route is set.
+// A story has no browser and no address bar, so each half is tested on its
+// own, and the tests send `ChangedUrl` by hand.
+describe('routing', () => {
+  // `init` reads the address the app was opened at, so a visitor who opens
+  // the how-to page directly lands on it.
+  test('the app starts on the page its address names', () => {
+    const preferences = DEFAULT_PREFERENCES
+
+    expect(init({ preferences }, tunerUrl).model.route).toEqual(
+      AppRoute.Tuner(),
+    )
+    expect(init({ preferences }, howToUrl).model.route).toEqual(
+      AppRoute.HowTo(),
+    )
+    expect(
+      init({ preferences }, urlOf('http://localhost/nope')).model.route,
+    ).toEqual(AppRoute.NotFound({ path: '/nope' }))
+  })
+
+  // An internal link is one to an address of this app. The runtime has
+  // already stopped the browser from loading it, and `update` asks for the
+  // address to change without a page load. `expectExact` says this is the
+  // only Command.
+  test('clicking a link to one of our pages changes the address, and nothing else', () => {
+    story(
+      update,
+      given(offModel),
+      message(
+        Message.ClickedLink({
+          request: UrlRequest.Internal({ url: howToUrl }),
+        }),
+      ),
+      model(next => {
+        expect(next).toEqual(offModel)
+      }),
+      Command.expectExact(NavigateInternal({ url: urlToString(howToUrl) })),
+      Command.resolve(NavigateInternal, Message.CompletedNavigateInternal()),
+    )
+  })
+
+  // An external link goes to another site, which only a full page load can
+  // reach. The app has no such link today. The case is handled because the
+  // runtime reports every link click, and `UrlRequest` has two variants.
+  test('clicking a link to another site loads it', () => {
+    story(
+      update,
+      given(offModel),
+      message(
+        Message.ClickedLink({
+          request: UrlRequest.External({ href: 'https://example.org/' }),
+        }),
+      ),
+      model(next => {
+        expect(next).toEqual(offModel)
+      }),
+      Command.expectExact(LoadExternal({ href: 'https://example.org/' })),
+      Command.resolve(LoadExternal, Message.CompletedLoadExternal()),
+    )
+  })
+
+  // Leaving the tuner's page switches the tuner off, whatever it was doing.
+  // `Off` is what makes the runtime release the microphone (the managed
+  // resource, tested above under 'microphone requirement'), so no microphone stays
+  // open on a page that shows no tuner. A failure message is cleared the
+  // same way. No Command is needed: the Model is all the runtime goes by.
+  test.each([
+    ['starting', startingModel],
+    ['listening', listening({ level: 0.4 })],
+    ['failed', failedModel],
+    ['off', offModel],
+  ])('leaving the tuner page while %s switches the tuner off', (_, start) => {
+    story(
+      update,
+      given(start),
+      message(Message.ChangedUrl({ url: howToUrl })),
+      model(next => {
+        expect(next.route).toEqual(AppRoute.HowTo())
+        expect(next.tuner).toEqual(TunerState.Off())
+      }),
+      Command.expectNone(),
+    )
+  })
+
+  // An address change that stays on the tuner's page, such as a fragment
+  // added to the address, leaves the tuner alone.
+  test('an address change that stays on the tuner page keeps it listening', () => {
+    const start = listening({ level: 0.4 })
+
+    story(
+      update,
+      given(start),
+      message(Message.ChangedUrl({ url: urlOf('http://localhost/#top') })),
+      model(next => {
+        expect(next).toEqual(start)
+      }),
+      Command.expectNone(),
+    )
+  })
+
+  // The back button is a `ChangedUrl` with no `ClickedLink` before it. The
+  // tuner comes back off: nothing switches it on but the power button.
+  test('coming back to the tuner page shows it, switched off', () => {
+    story(
+      update,
+      given(listening()),
+      message(Message.ChangedUrl({ url: howToUrl })),
+      message(Message.ChangedUrl({ url: tunerUrl })),
+      model(next => {
+        expect(next.route).toEqual(AppRoute.Tuner())
+        expect(next.tuner).toEqual(TunerState.Off())
+      }),
+      Command.expectNone(),
+    )
+  })
+
+  // An address no route matches is a page too, so the app always has
+  // something to draw.
+  test('an unknown address is the not-found page', () => {
+    story(
+      update,
+      given(offModel),
+      message(Message.ChangedUrl({ url: urlOf('http://localhost/nope') })),
+      model(next => {
+        expect(next.route).toEqual(AppRoute.NotFound({ path: '/nope' }))
+      }),
+    )
+  })
+
+  // The two navigation Commands report back when they have run. There is
+  // nothing to do with the news.
+  test.each([
+    ['CompletedNavigateInternal', Message.CompletedNavigateInternal()],
+    ['CompletedLoadExternal', Message.CompletedLoadExternal()],
+  ])('%s changes nothing', (_, completed) => {
+    story(
+      update,
+      given(listening()),
+      message(completed),
+      model(next => {
+        expect(next).toEqual(listening())
+      }),
+      Command.expectNone(),
     )
   })
 })

@@ -27,6 +27,7 @@
 // that may be missing: `Option.some(value)` or `Option.none()`.
 import { Effect, Option } from 'effect'
 import { modifyFields } from 'foldkit/struct'
+import { fromString } from 'foldkit/url'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import * as Sentry from '@sentry/browser'
@@ -310,8 +311,10 @@ describe('reportCrash', () => {
   test('a crash keeps the nested parts of the model and the message', async () => {
     const { events } = startRecording()
     const reading = Option.some({ frequency: 110, clarity: 0.95 })
+    // `init` takes the address the app is opened at as well as the flags.
+    const url = Option.getOrThrow(fromString('http://localhost/'))
     const model = modifyFields(
-      init({ preferences: DEFAULT_PREFERENCES }).model,
+      init({ preferences: DEFAULT_PREFERENCES }, url).model,
       {
         tuner: () =>
           TunerState.Listening({

@@ -111,6 +111,7 @@ import {
   type,
 } from 'foldkit/scene'
 import { modifyFields } from 'foldkit/struct'
+import { fromString } from 'foldkit/url'
 import { describe, test } from 'vitest'
 
 import { Popover } from '@foldkit/ui'
@@ -135,7 +136,19 @@ import { view } from './view'
 // `story.test.ts`. `Option` is Effect's type for a value that may be
 // missing: `Option.some(value)` or `Option.none()`.
 
-const offModel: Model = init({ preferences: DEFAULT_PREFERENCES }).model
+// `init` takes the address the app is opened at, after the flags, because
+// the app has routing. `fromString` returns an Option, since a string may
+// not be an address at all. This one is.
+const urlOf = (raw: string) =>
+  Option.getOrThrowWith(
+    fromString(raw),
+    () => new Error(`Not an address: ${raw}`),
+  )
+
+const offModel: Model = init(
+  { preferences: DEFAULT_PREFERENCES },
+  urlOf('http://localhost/'),
+).model
 
 // The fields of the `Listening` state, each optional, without its `_tag`.
 type ListeningFields = Partial<Omit<typeof TunerState.Listening.Type, '_tag'>>
