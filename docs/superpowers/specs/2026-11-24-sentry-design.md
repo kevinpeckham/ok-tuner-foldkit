@@ -165,6 +165,7 @@ Recorded on 2026-11-24, after the build and its review. Where this section and t
 - **Crash reports keep nested data.** The SDK's default flattens anything deeper than three levels, which lost the current reading; the depth is raised to 10.
 - **Approximate location.** With every switch off, Sentry stores no IP address but still attaches a country, region and city to each report on its side. Kevin switched "Prevent Storing of IP Addresses" on later the same day; a report sent afterwards still carried a country and city.
 - **The custom domain.** `www.oktuner.com` was connected to production after the build, and reported nothing until it and `oktuner.com` were added to the production hostnames.
+- **Previews no longer report, and the `preview` tag is gone (2026-11-25).** Kevin set the Sentry project's Allowed Domains to our own hosts. It cannot name our preview addresses without `*.vercel.app`, so Sentry drops what previews send. They came off the app's host list, leaving production and the dev server, and the environment tag is now `production` or `development`.
 
 ## Left to the builder
 
