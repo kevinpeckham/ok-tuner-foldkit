@@ -59,9 +59,21 @@ Items are grouped by kind, not ranked.
 - **Limit Tailwind's scan to `src` and `index.html`.** It reads comments and documents too, and turns ordinary words into unused rules (see `FINDINGS.md`).
 - **Strip comments from the built `index.html`,** if their 2.7 kB or their being public matters. They are there for teaching.
 
+## Pages and routing
+
+Found by the review of the routing change on 2026-11-25, and left as they were.
+
+- **The settings menu survives leaving the page.** Open it, press the browser's back button to another page and come forward again: the tuner is off but the menu is open, and the first press of On / Off only closes it. Close the menu and reset the A4 text in `enterRoute`.
+- **With the tuning list open, the first click on the how-to link only closes the list.** It is the Listbox's outside-click behaviour.
+- **Leaving while the browser is still asking for the microphone.** If permission is then granted, the microphone opens and closes at once, and the browser's indicator may blink on a page with no tuner. Coming back and pressing On / Off during that time shows "starting" without asking again until the first request settles.
+- **`/index.html` shows "Page not found".** It was the tuner before routing. Add it to the tuner's router, or redirect it.
+- **The not-found page prints the path as the address has it.** `/café` reads `/caf%C3%A9`, and a very long path widens the page on a phone. Decode it and let it wrap.
+- **The title is tested as `pageTitle`, not as what `view` returns.** A `view` that ignored `pageTitle` would pass every test.
+- **No automated test clicks through.** Nothing covers the `routing` option in `entry.ts` or what the two navigation Commands do when run. The check is by hand in headless Chrome.
+- **Every page's first heading is "OK Tuner".** The page's own name is the second. Whether the page name should be the first is a design choice.
+
 ## Page content
 
-- **"How to use the tuner" on its own page.** Move it off the main page, so the main page is cleaner and simpler to look at. This is the app's first second page: it brings routing with it, and a link to the new page.
 - **Footer:** copyright, attribution, and links to Stem Shovel and Lightning Jar.
 - **"Built with Foldkit"** in the footer, linking to the Foldkit project.
 - **Ad-free and tracker-free, in the title.** Update the page title to say so.

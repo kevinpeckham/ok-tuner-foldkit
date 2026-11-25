@@ -35,6 +35,24 @@
 //      starts or stops the readings, to match.
 //   6. Whatever those produce comes back as more Messages. Go to 3.
 //
+// ROUTING. The app has more than one page, and which page is showing is
+// state like any other: the `route` field of the Model. The address bar is
+// outside the app, so the runtime watches it and reports with two Messages,
+// which src/entry.ts names in its `routing` option:
+//
+//   a. A link in the page is clicked. The runtime stops the browser from
+//      loading the address and sends ClickedLink instead. `update` answers
+//      with the NavigateInternal Command, which changes the address without
+//      a page load. The route has not changed yet.
+//   b. The address has changed: because of that Command, or because the
+//      person pressed the browser's back or forward button. The runtime
+//      sends ChangedUrl. `update` works out the route for the new address
+//      and puts it in the Model, and the view draws that page.
+//
+// A click therefore goes round the loop twice, and the route is set in one
+// place only, whatever moved the address. The routes themselves, and the
+// mapping between a route and an address, are in src/route.ts.
+//
 // So nothing in this file calls anything. `update` never opens a microphone
 // and never writes to storage. It returns a Model that says the tuner is on,
 // or a Command that describes the write, and the runtime does the rest. That
@@ -55,7 +73,8 @@
 // The imports, by origin. `effect` is the library Foldkit is built on.
 // `foldkit` exports one namespace per concept (Command, ManagedResource,
 // Subscription, Update, Runtime), and single helpers from subpaths such as
-// `foldkit/message`. `@foldkit/ui` is Foldkit's set of headless, accessible
+// `foldkit/message` (`foldkit/navigation` and `foldkit/url` are the two that
+// routing needs). `@foldkit/ui` is Foldkit's set of headless, accessible
 // components. The two used here, Listbox and Popover, each have their own
 // Model, Message and update, and are embedded in this app as child
 // components. Foldkit calls such a child a Submodel.
@@ -68,14 +87,17 @@ import { Duration, Effect, Option, Schema, Stream } from 'effect'
 import { KeyValueStore } from 'effect/persistence'
 import {
   Command,
+  Dom,
   ManagedResource,
   type Runtime,
   Subscription,
   Update,
 } from 'foldkit'
 import { defineMessageUnion } from 'foldkit/message'
+import { UrlRequest, load, pushUrl } from 'foldkit/navigation'
 import { defineTaggedUnion } from 'foldkit/schema'
 import { modifyFields } from 'foldkit/struct'
+import { Url, toString as urlToString } from 'foldkit/url'
 
 import { BrowserKeyValueStore } from '@effect/platform-browser'
 import { Listbox, Popover } from '@foldkit/ui'
@@ -99,6 +121,7 @@ import {
   preferencesFromJson,
   preferencesToJson,
 } from './preferences'
+import { AppRoute, PAGE_HEADING_ID, urlToAppRoute } from './route'
 import { reportMicrophoneProblem } from './sentry'
 import { type Tuning } from './tuning'
 
@@ -212,13 +235,16 @@ type Listening = typeof TunerState.Listening.Type
 // `TuningListbox.view`.
 export const TuningListbox = Listbox.create<Tuning>()
 
-// The Model: these six fields are all the state the app has.
+// The Model: these seven fields are all the state the app has.
 //
 // What is not here matters as much. The note's name, its octave, the cents
 // label, "in tune" and the nearest string are not stored. The view works them
 // out from these fields on every render (the tuner design, "Model"), so they
 // can never disagree with them.
 export const Model = Schema.Struct({
+  // Which page is showing (src/route.ts). `AppRoute` is a Schema, as every
+  // field of the Model must be. Only the ChangedUrl Message changes it.
+  route: AppRoute,
   // The power state above.
   tuner: TunerState,
   // The id of the chosen tuning, such as 'standard' (src/tuning.ts).
@@ -268,9 +294,10 @@ export type Model = typeof Model.Type
 // in SucceededSavePreferences or FailedSavePreferences, and ReportProblem in
 // CompletedReportProblem.
 //
-// There is no "NoOp" Message, and FOLDKIT.md forbids one. Four of the
+// There is no "NoOp" Message, and FOLDKIT.md forbids one. Seven of the
 // Messages below change nothing in the Model (ReleasedMicrophone, the two
-// results of SavePreferences, CompletedReportProblem). Each still says what
+// results of SavePreferences, and the four that start with Completed). Each
+// still says what
 // happened, so the Message history in the Foldkit DevTools reads as a record
 // of events.
 export const Message = defineMessageUnion({
@@ -297,6 +324,21 @@ export const Message = defineMessageUnion({
   FailedSavePreferences: {},
   // From the ReportProblem Command: it ran.
   CompletedReportProblem: {},
+  // The next two come from the runtime, through the `routing` option in
+  // src/entry.ts (see ROUTING in the header).
+  // A link in the page was clicked. `UrlRequest` is Foldkit's tagged union
+  // of the two kinds of link: `Internal({ url })` for an address on this
+  // site (the same origin, whether or not the app has a page there) and
+  // `External({ href })` for any other.
+  ClickedLink: { request: UrlRequest },
+  // The address changed. `Url` is Foldkit's Schema for a parsed address:
+  // protocol, host, port, pathname, search and hash.
+  ChangedUrl: { url: Url },
+  // From the two navigation Commands: each ran.
+  CompletedNavigateInternal: {},
+  CompletedLoadExternal: {},
+  // From the FocusPageHeading Command: it ran.
+  CompletedFocusPageHeading: {},
 })
 export type Message = typeof Message.Type
 
@@ -361,11 +403,17 @@ export const flags: Effect.Effect<Flags> = Effect.gen(function* () {
 // The text shown in the A4 field for an applied value.
 const a4ToInput = (a4: number): string => `${a4}`
 
-// `init` builds the first Model. Its type, `Runtime.ApplicationInit<Model,
-// Message, Flags>`, is a function from the Flags to the same kind of record
-// that `update` returns: `{ model }`, with `commands` beside it if anything
-// should run at start-up. Nothing needs to here. The tuner starts Off, and
-// the microphone opens only when the person asks for it.
+// `init` builds the first Model. Its type, `Runtime.RoutingApplicationInit<
+// Model, Message, Flags>`, is a function from the Flags and the address the
+// app was opened at to the same kind of record that `update` returns:
+// `{ model }`, with `commands` beside it if anything should run at start-up.
+// Nothing needs to here. The tuner starts Off, and the microphone opens only
+// when the person asks for it.
+//
+// The address is the second argument because the app has routing: an app
+// without it has the type `Runtime.ApplicationInit`, and its `init` takes
+// the Flags alone. `urlToAppRoute` turns the address into the first route,
+// so someone who opens `/how-to` directly starts on that page.
 //
 // `Listbox.init` and `Popover.init` build the first Models of the two child
 // components. The `id` is the component's own: it builds the ids of its
@@ -373,10 +421,12 @@ const a4ToInput = (a4: number): string => `${a4}`
 //
 // In development `init` may not run after a reload, because Foldkit restores
 // the Model it saved instead. See the NOTE under SUBSCRIPTION.
-export const init: Runtime.ApplicationInit<Model, Message, Flags> = ({
-  preferences,
-}) => ({
+export const init: Runtime.RoutingApplicationInit<Model, Message, Flags> = (
+  { preferences },
+  url,
+) => ({
   model: {
+    route: urlToAppRoute(url),
     tuner: TunerState.Off(),
     tuningId: preferences.tuningId,
     a4: preferences.a4,
@@ -460,6 +510,67 @@ export const ReportProblem = Command.define('ReportProblem', {
       Effect.as(Message.CompletedReportProblem()),
       Effect.catchCause(() => Effect.succeed(Message.CompletedReportProblem())),
     ),
+})
+
+// Changes the address to another page of this app, without a page load.
+// `pushUrl` (from `foldkit/navigation`) adds the address to the browser's
+// history, so the back button returns from it, and then tells the runtime
+// that the address changed. The runtime answers with a ChangedUrl Message,
+// and that Message, not this Command, is what changes the route.
+//
+// `url` is the whole address as a string: `update` prints it from the `Url`
+// it was given.
+export const NavigateInternal = Command.define('NavigateInternal', {
+  args: { url: Schema.String },
+  messages: [Message.CompletedNavigateInternal],
+  execute: ({ url }) =>
+    pushUrl(url).pipe(Effect.as(Message.CompletedNavigateInternal())),
+})
+
+// Leaves the app for an address on another site, with an ordinary page load
+// (`load`, from `foldkit/navigation`). The app has no such link today. The
+// Command exists because the runtime reports every link click, and stops
+// the browser from following the link itself, so a link to another site
+// would do nothing unless `update` asked for the load.
+export const LoadExternal = Command.define('LoadExternal', {
+  args: { href: Schema.String },
+  messages: [Message.CompletedLoadExternal],
+  execute: ({ href }) =>
+    load(href).pipe(Effect.as(Message.CompletedLoadExternal())),
+})
+
+// Takes the person to the top of the page that has just appeared: scrolls
+// the window to the top, then moves keyboard focus to the heading that
+// names the page. `update` returns it whenever the page changes.
+//
+// A browser does both by itself when it loads a page. A change of page
+// inside the app is not a page load, so neither happens: the window stays
+// scrolled where it was, and focus is left on nothing, because the link
+// that had it is gone. A screen reader then says nothing, and its user
+// cannot tell that anything happened. Moving focus to the heading makes it
+// read the heading out (FINDINGS.md, "A page change is silent unless the
+// app moves focus").
+//
+// `Dom.focus` (from Foldkit's `Dom` module) waits until the render that
+// follows this Message has reached the page, so the new page's heading is
+// there to be found, and then focuses the element the selector matches.
+// `preventScroll` stops the focus from scrolling the page again. The
+// heading has `tabindex="-1"` in the view, without which a heading cannot
+// take focus.
+//
+// `Dom.focus` fails with `ElementNotFound` if no element matches. A Command
+// has to end in a Message whatever happens (FOLDKIT.md, "Commands"), and
+// the app would do nothing about a heading it could not find, so
+// `Effect.ignore` drops the failure.
+export const FocusPageHeading = Command.define('FocusPageHeading', {
+  messages: [Message.CompletedFocusPageHeading],
+  execute: Effect.sync(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }).pipe(
+    Effect.andThen(Dom.focus(`#${PAGE_HEADING_ID}`, { preventScroll: true })),
+    Effect.ignore,
+    Effect.as(Message.CompletedFocusPageHeading()),
+  ),
 })
 
 // UPDATE
@@ -692,6 +803,34 @@ const applyA4Input = (model: Model, value: string): UpdateReturn => {
   })
 }
 
+// The Model after the address has changed to `nextRoute`.
+//
+// Leaving the tuner's page switches the tuner off, whatever it was doing.
+// `Off` is all it takes to close the microphone: the managed resource below
+// requires it only while Starting or Listening, so the runtime releases it.
+// A microphone is thus never left open on a page that shows no tuner. A
+// failure message is cleared the same way.
+//
+// NOTE: one case is not instant. If the person leaves while the browser is
+// still asking for permission and then grants it, the microphone opens and
+// the runtime closes it at once: an acquisition that has started cannot be
+// interrupted. An address change that stays on the
+// tuner's page leaves the tuner as it is.
+//
+// `AppRoute.match` is the route union's exhaustive matcher, like
+// `TunerState.match`: a route added to src/route.ts stops this compiling
+// until it is decided here.
+const enterRoute = (model: Model, nextRoute: AppRoute): Model =>
+  modifyFields(model, {
+    route: () => nextRoute,
+    tuner: tuner =>
+      AppRoute.match(nextRoute, {
+        Tuner: () => tuner,
+        HowTo: () => TunerState.Off(),
+        NotFound: () => TunerState.Off(),
+      }),
+  })
+
 // `update` is the heart of the app: the one function that decides what each
 // Message means. The runtime calls it with the current Model and a Message,
 // one Message at a time, and takes back the next Model and any Commands. It
@@ -800,15 +939,58 @@ export const update = (model: Model, message: Message) =>
     // The A4 field changed: see `applyA4Input`.
     UpdatedA4Input: ({ value }) => applyA4Input(model, value),
 
-    // The results of the two Commands. None of them changes the Model. A
-    // failed save is not reported to Sentry, on purpose: blocked storage is
-    // the person's own choice, and the app cannot tell it from any other
-    // storage fault (the Sentry design, "Caught failures: the microphone").
+    // The results of SavePreferences and ReportProblem. None of them
+    // changes the Model. A failed save is not reported to Sentry, on
+    // purpose: blocked storage is the person's own choice, and the app
+    // cannot tell it from any other storage fault (the Sentry design,
+    // "Caught failures: the microphone").
     SucceededSavePreferences: () => ({ model }),
 
     FailedSavePreferences: () => ({ model }),
 
     CompletedReportProblem: () => ({ model }),
+
+    // A link was clicked (ROUTING in the header, step a). The Model does
+    // not change: the route follows the address, and the address has not
+    // moved yet. `UrlRequest.match` is exhaustive over the two kinds of
+    // link. `urlToString` prints the parsed address back as a string, which
+    // is what `pushUrl` takes.
+    ClickedLink: ({ request }) =>
+      UrlRequest.match<UpdateReturn>(request, {
+        Internal: ({ url }) => ({
+          model,
+          commands: [NavigateInternal({ url: urlToString(url) })],
+        }),
+        External: ({ href }) => ({
+          model,
+          commands: [LoadExternal({ href })],
+        }),
+      }),
+
+    // The address changed (step b). This is the only place the route is
+    // set, so a click, the back button and the forward button all arrive
+    // here and are treated alike.
+    //
+    // When the page changes, the FocusPageHeading Command goes with it. An
+    // address change that stays on the same page, such as a fragment added
+    // to the address, returns no Command. The two routes are compared by
+    // tag, which is enough to tell one page from another.
+    ChangedUrl: ({ url }) => {
+      const nextRoute = urlToAppRoute(url)
+      const isNewPage = nextRoute._tag !== model.route._tag
+
+      return {
+        model: enterRoute(model, nextRoute),
+        commands: isNewPage ? [FocusPageHeading()] : [],
+      }
+    },
+
+    // The three routing Commands ran. Nothing follows from that.
+    CompletedNavigateInternal: () => ({ model }),
+
+    CompletedLoadExternal: () => ({ model }),
+
+    CompletedFocusPageHeading: () => ({ model }),
   })
 
 // MANAGED RESOURCE

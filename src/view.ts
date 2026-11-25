@@ -1,4 +1,4 @@
-// view.ts: the whole page, as a function of the Model.
+// view.ts: every page, as a function of the Model.
 //
 // Where this file sits. A Foldkit app follows the Elm architecture: a Model
 // holds all the state, `update` is the only place the state changes, and
@@ -38,10 +38,21 @@
 // out of step with the reading it came from. A derived value cannot. The
 // design says the same under "Model".
 //
-// The layout, top to bottom, and the function that draws each part. The
-// drawing in the design ("What is on screen") shows the same screen:
+// The pages. The app has three, and the `route` field of the Model says
+// which one is showing (src/route.ts). `view` draws what every page shares
+// and hands the rest to the page's own view function:
 //
-//   view                     page ground, heading, intro line
+//   view                     the title, the page ground, the "OK Tuner" heading
+//     tunerPageView          route Tuner: the tuner, in this file
+//     HowTo.view             route HowTo: src/page/howTo.ts
+//     NotFound.view          route NotFound: src/page/notFound.ts
+//
+// The tuner's page is by far the largest, and the rest of this file is
+// about it. Its layout, top to bottom, and the function that draws each
+// part. The drawing in the design ("What is on screen") shows the same
+// screen:
+//
+//   tunerPageView            intro line, the tuner, the link to the how-to page
 //     tunerView              the grey pedal body
 //       screenView           the dark screen
 //         levelView          input level bar             (ui: Meter)
@@ -59,7 +70,6 @@
 //       powerButtonView      On / Off                    (ui: Button)
 //       failureView          the error line
 //       (inline)             the "OK Tuner 001" badge
-//     howToView              the how-to text under the tuner
 //
 // Conventions you will see throughout (FOLDKIT.md, "View" and "Code Style"):
 //   - Every view function takes `h`, the Html builder, as its last parameter.
@@ -68,7 +78,10 @@
 //     (`Option.match`, `Array.match`, `TunerState.match`): the compiler
 //     insists that every case is handled.
 //   - Keys appear in one place only: on the items of the mapped list that
-//     changes with the Model (`stringView`).
+//     changes with the Model (`stringView`). The switch between pages is
+//     not keyed: each page is its own named view function, and Foldkit's
+//     build gives each view function's output its own identity, so changing
+//     page replaces the old page's DOM (FOLDKIT.md, "View").
 //
 // Read `src/main.ts` first: the Model, Message and TunerState used here are
 // defined there. Then `src/scene.test.ts`, which drives this file through its
@@ -127,6 +140,11 @@ import {
 // Turns the kind of microphone failure held in the Model into the sentence
 // shown to the person.
 import { failureSentence } from './microphone'
+// The other two pages. Each file exports a function called `view`, so they
+// are imported as namespaces: `HowTo.view(h)`.
+import * as HowTo from './page/howTo'
+import { pageHeadingAttributes, textLink } from './page/link'
+import * as NotFound from './page/notFound'
 // Pure note arithmetic: the nearest note to a frequency, the frequency of a
 // MIDI note, and a note's name. No Foldkit in there.
 import {
@@ -138,6 +156,9 @@ import {
 // The limits of the A4 field, and the parser that decides whether what was
 // typed is a usable A4.
 import { A4_MAX, A4_MIN, parseA4 } from './preferences'
+// The routes: `AppRoute` to tell the pages apart, and `howToRouter` to build
+// the path of the how-to page for the link to it.
+import { AppRoute, howToRouter } from './route'
 // The list of tunings, and two lookups: a tuning by its id, and the string of
 // a tuning that is nearest to a note.
 import { TUNINGS, type Tuning, nearestString, tuningById } from './tuning'
@@ -156,16 +177,6 @@ const LEVEL_BAR_SCALE = 50
 // line while nothing is heard. An ordinary space on its own would take up no
 // room at all. This one is laid out like a letter, so the line keeps its box.
 const NON_BREAKING_SPACE = ' '
-
-// The tips under the tuner, kept as data. `howToView` maps them to list items.
-// `ReadonlyArray<string>` is the house spelling of `readonly string[]`
-// (FOLDKIT.md, "Code Style").
-const HOW_TO_TIPS: ReadonlyArray<string> = [
-  'Pick your tuning from the menu: guitar standard, drop D, a half step down, DADGAD, open G, bass, five-string bass or ukulele.',
-  'Choose Chromatic for any other instrument or tuning: it just names whatever it hears.',
-  'The menu beside the tuning sets A4 if your band tunes to 442 Hz; the tuning and the reference pitch are remembered on this device.',
-  'Play one string at a time and let it ring: the needle settles rather than jitters.',
-]
 
 // DISPLAY
 
@@ -320,9 +331,8 @@ const needleLeft = (needleCents: number): string => {
 // `makeApplication` owns the whole page:
 //
 //   title  the runtime writes it to `document.title` after a render, if it
-//          differs from the title showing. Here it never changes. It repeats
-//          the static <title> of index.html, which is what the tab shows
-//          before the script has run.
+//          differs from the title showing. Here it changes with the page
+//          (`pageTitle` below).
 //   body   the Html of the page. On the first render its root element (the
 //          <main>) takes the place of the container, the `#root` div of
 //          index.html. After that the runtime patches it where it stands.
@@ -331,34 +341,88 @@ const needleLeft = (needleCents: number): string => {
 // They are left out here, and the runtime leaves alone what it is not given,
 // so the `lang="en"` written in index.html stays.
 //
-// The body itself: a dark page ground (`bg-oxford-dark`, a colour defined in
+// The title is a function of the route, and so is the page: both are an
+// exhaustive `AppRoute.match`, so a route added to src/route.ts stops this
+// file compiling until it has a title and a page.
+
+// The tuner's title repeats the static <title> of index.html. The other
+// pages put their own name first. `pageTitle` is exported for
+// src/view.test.ts: a scene renders the body and cannot see the title.
+/** The text of the browser tab for each page. */
+export const pageTitle = (route: AppRoute): string =>
+  AppRoute.match(route, {
+    Tuner: () => 'OK Tuner | Chromatic Instrument Tuner',
+    HowTo: () => 'How to use the tuner | OK Tuner',
+    NotFound: () => 'Page not found | OK Tuner',
+  })
+
+// The body: a dark page ground (`bg-oxford-dark`, a colour defined in
 // styles.css), and one centred column, at most 600px wide, holding the
-// heading, a line of introduction, the tuner and the how-to text.
+// heading and then the page the route names. The ground, the column and the
+// heading are the same on every page, so they are drawn here once.
+//
+// Composition is a function call. There are no components to register and
+// no props objects: a page, or a part of one, is a function that returns
+// Html, given what it needs and the builder. `NotFound.view` needs the path
+// from its route, `tunerPageView` needs the Model, and `HowTo.view` needs
+// nothing but the builder.
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: 'OK Tuner | Chromatic Instrument Tuner',
+  title: pageTitle(model.route),
   body: h.main(
     [h.Class('min-h-screen bg-oxford-dark px-6 py-12 text-slate-100')],
     [
       h.div(
         [h.Class('mx-auto w-full max-w-[600px]')],
         [
-          h.h1([h.Class('font-serif text-3xl')], ['OK Tuner']),
-          h.p(
-            [h.Class('mt-4 mb-8 text-slate-200')],
+          // The site's name. On the tuner's page it is also the heading
+          // that names the page, so there it takes the attributes that let
+          // focus move to it when the page appears (src/page/link.ts). The
+          // other two pages mark a heading of their own.
+          h.h1(
             [
-              'Free chromatic tuner that works in your browser. Preset tunings for guitar, bass and ukulele.',
+              ...AppRoute.match(model.route, {
+                Tuner: () => pageHeadingAttributes(h),
+                HowTo: () => [],
+                NotFound: () => [],
+              }),
+              h.Class('font-serif text-3xl outline-none'),
             ],
+            ['OK Tuner'],
           ),
-          // Composition is a function call. There are no components to
-          // register and no props objects: a part of the page is a function
-          // that returns Html, given what it needs and the builder.
-          tunerView(model, h),
-          howToView(h),
+          AppRoute.match(model.route, {
+            Tuner: () => tunerPageView(model, h),
+            HowTo: () => HowTo.view(h),
+            NotFound: ({ path }) => NotFound.view(path, h),
+          }),
         ],
       ),
     ],
   ),
 })
+
+// The tuner's page: a line of introduction, the tuner, and a link to the
+// how-to page. The how-to text itself was here until it moved to a page of
+// its own, which keeps this page to the tuner.
+//
+// The link is an ordinary `<a>` (src/page/link.ts), and `howToRouter()`
+// builds its path, `/how-to`.
+const tunerPageView = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [],
+    [
+      h.p(
+        [h.Class('mt-4 mb-8 text-slate-200')],
+        [
+          'Free chromatic tuner that works in your browser. Preset tunings for guitar, bass and ukulele.',
+        ],
+      ),
+      tunerView(model, h),
+      h.p(
+        [h.Class('mt-6')],
+        [textLink(howToRouter(), 'How to use the tuner', h)],
+      ),
+    ],
+  )
 
 // The grey pedal body and everything on it.
 //
@@ -1246,30 +1310,3 @@ const failureView = (display: Display, h: HtmlBuilder<Message>): Html =>
         [reason],
       ),
   })
-
-// The how-to text under the tuner. It is static, so it takes no Model, only
-// the builder. The tips are mapped from `HOW_TO_TIPS` with Effect's
-// `Array.map`. They are not keyed: the list never changes, so there is
-// nothing for a key to keep track of.
-const howToView = (h: HtmlBuilder<Message>): Html =>
-  h.section(
-    [
-      h.Class(
-        'mt-8 rounded-md border border-white/70 p-5 leading-relaxed text-slate-200',
-      ),
-    ],
-    [
-      h.h2([h.Class('font-semibold text-slate-50')], ['How to use the tuner']),
-      h.p(
-        [h.Class('mt-3')],
-        [
-          'Turn the tuner on (the browser asks for the microphone once) and play a single string or note. The nearest note shows large, the needle reads how many cents sharp or flat it is (green within five), and the string of your tuning it is closest to lights up. Nothing is recorded.',
-        ],
-      ),
-      h.h3([h.Class('mt-5 font-semibold text-slate-50')], ['Quick tips']),
-      h.ul(
-        [h.Class('mt-3 list-disc space-y-2 pl-5')],
-        Array.map(HOW_TO_TIPS, tip => h.li([], [tip])),
-      ),
-    ],
-  )

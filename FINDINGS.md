@@ -8,6 +8,19 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### Leaving the tuner's page switches the tuner off (2026-11-25, routing)
+
+- **Why.** "Nothing is recorded" would ring hollow with a microphone open on a page that shows no tuner. Any address change to a route other than `Tuner` sets the tuner to `Off`, and `Off` is all the runtime needs to release the microphone. A failure message is cleared the same way.
+- **What it costs.** Coming back from the how-to page, the tuner has to be switched on again.
+- **Checked.** In headless Chrome the microphone track read `live` on the tuner's page and `ended` straight after the link was clicked.
+- **Where.** `enterRoute` in `src/main.ts`; "routing" in `src/story.test.ts`.
+
+### The route is set in one place, by the address (2026-11-25, routing)
+
+- **Why.** A link click does not change the route. `update` answers `ClickedLink` with a Command that changes the address, the runtime then sends `ChangedUrl`, and only that sets the route. A click goes round the loop twice, and in return the back and forward buttons, which send `ChangedUrl` alone, need no code of their own.
+- **What follows.** A link is a plain `<a href>` with no handler. The runtime catches the click on the document, and leaves alone a modified click, a link whose `target` is another tab or frame, and a download link. A link to anything on the same origin counts as internal, so a link to a file such as `/favicon.svg` would be drawn as "Page not found".
+- **Where.** `ClickedLink`, `ChangedUrl` and `NavigateInternal` in `src/main.ts`; the `routing` option in `src/entry.ts`; `src/route.ts`.
+
 ### Reports are sent only from a list of our own hosts (2026-11-24, Sentry)
 
 - **Why.** The repository is public and the Sentry address (the DSN) is in the source, as it must be for a browser app. Without a check, a fork on someone else's Vercel account, or `bun run dev` on any machine, would report into our project.
@@ -47,6 +60,31 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **Why.** The design said both "the note turns green in tune" and "colours match the original". In the live original the green class is overridden and never shows. Kevin looked at the result and kept it as it is.
 
 ## Foldkit and Effect
+
+### A page change is silent unless the app moves focus (2026-11-25, routing)
+
+- **Symptom.** After a link was activated the new page was drawn, focus sat on `<body>`, and the window stayed scrolled where it had been. A screen reader would have said nothing. Found by the review of the routing branch, in headless Chrome.
+- **Cause.** A browser moves focus and scroll when it loads a page. A change of route is not a page load, and the Foldkit runtime does neither for you.
+- **Fix.** `ChangedUrl` returns a `FocusPageHeading` Command when the page changes. It scrolls to the top and focuses the heading that names the page, which each page marks with `pageHeadingAttributes` (an id and `tabindex="-1"`). Foldkit's own website does the scrolling half the same way.
+- **What was seen after.** Focus on the `h2` of the how-to page and the `h1` of the tuner's, with the window at the top. After the back button the browser restores its own scroll position for that history entry, which is the usual behaviour.
+- **In a scene** `tabindex` is the property `tabIndex`: `toHaveAttr('tabIndex', '-1')`.
+- **Where.** `FocusPageHeading` and `ChangedUrl` in `src/main.ts`; `src/page/link.ts`.
+
+### Routing changes the signature of `init` (2026-11-25, routing)
+
+- **What happens.** A `routing` option lets `init` take the address as a second argument (`Runtime.RoutingApplicationInit`). Nothing forces it: an `init` that still takes the flags alone compiles with `routing` set, and simply never learns the address. The reverse is an error, reported at `makeApplication` in `entry.ts`: an `init` with two arguments and no `routing` option.
+- **What it costs.** Every caller of `init` changes, and tests are callers: the fixtures in `story.test.ts` and `scene.test.ts`, and one test in `sentry.test.ts` that builds a Model for a crash report.
+- **Where.** `init` in `src/main.ts`; `urlOf` in the test files.
+
+### What a path matches (2026-11-25, routing)
+
+- **What was seen.** `/how-to/`, `/how-to?x=1` and `/how-to#y` are all the how-to page: a trailing slash, a query string and a fragment are ignored. `/How-To` and `/how-to/extra` are not found: matching is case-sensitive, and a router must use up every segment.
+- **Where.** `src/route.test.ts` pins each of these.
+
+### A saved Model that no longer fits the Schema is dropped (2026-11-25, Foldkit)
+
+- **What it is.** In development the Vite plugin restores the Model after a reload. A Model saved before a field was added, such as `route`, fails the Schema's decode, and the runtime then runs `init` as on a first visit.
+- **Source.** Read in `runtime.ts` in `repos/foldkit` (`decodePreservedModel`, `onFailure: () => runInit`). Not exercised by hand.
 
 ### Foldkit catches crashes itself, so Sentry's own handlers never see them (2026-11-24, Sentry)
 
@@ -109,6 +147,13 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **How it was checked.** The comments were added without touching code: each file, with comments stripped, was compared before and after.
 
 ## Testing
+
+### A Scene test cannot follow a link (2026-11-25, routing)
+
+- **What happens.** A click on a link becomes `ClickedLink` only because the runtime listens on the real document. A scene has no runtime and no address bar, so clicking a link in one proves nothing about navigation.
+- **What to do.** Split the proof in three. A Scene test checks that each page shows what it should and that its link has the right `href`. A Story test checks `update`: `ClickedLink` returns the navigation Command, and `ChangedUrl` sets the route. The click through itself, with back and forward, is a check by hand in headless Chrome: no automated test covers it, or the `routing` option in `entry.ts`.
+- **Also.** A scene has no assertion for the document's title, so the title is a pure function, `pageTitle`, with a test of its own.
+- **Where.** "pages" in `src/scene.test.ts`, "routing" in `src/story.test.ts`, `src/view.test.ts`.
 
 ### A test can pass because the thing it guards never runs in a test (2026-11-24, Sentry)
 
@@ -307,6 +352,13 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **What happens.** `.oxlintrc.json`, `.oxlintrc.effect.json` and `tsconfig.json` have `//` comments. oxlint 1.85.0, `tsc` 7 and oxfmt all accept them, and the lint rules were probed afterwards and still fire. A tool that reads these files as strict JSON would not; an editor without the oxc extension may underline them.
 
 ## Vercel and domains
+
+### An unknown address is answered 200 (2026-11-25, Vercel)
+
+- **Why.** Only `index.html` exists, so `vercel.json` rewrites every path that is not a file to it. Without the rewrite, opening `/how-to` directly is a 404. With it, `/nope` is served the app with status 200, and the app then draws its own "Page not found".
+- **What it costs.** A mistyped asset address returns the page, not a 404. And a crawler would see a "soft 404", which matters once `noindex` is removed. Prerendering the pages would fix both, since real files are served first.
+- **The dev server** needs no setting: Vite serves `index.html` for unknown paths by itself.
+- **Where.** `rewrites` in `vercel.json`; `src/page/notFound.ts`.
 
 ### `oktuner.com` redirects to `www.oktuner.com` (2026-11-24, Vercel)
 

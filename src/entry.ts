@@ -56,10 +56,9 @@ const DEVTOOLS_MAX_ENTRIES = 500
 // `Runtime.makeElement`, is for an app that lives inside a page it does not
 // own.
 //
-// Some options are left out because this app has no use for them: `routing`
-// (the app has one page and ignores the URL), `resources` (services that
-// live as long as the app does) and `crash.view` (a crash screen of its own,
-// in place of Foldkit's default).
+// Some options are left out because this app has no use for them, among
+// them `resources` (services that live as long as the app does) and
+// `crash.view` (a crash screen of its own, in place of Foldkit's default).
 const application = Runtime.makeApplication({
   // The Schema of the Model. The runtime uses it in development, to save the
   // Model before a reload and to restore it afterwards.
@@ -81,6 +80,22 @@ const application = Runtime.makeApplication({
   // The readings. The runtime starts and stops the stream as the Model
   // requires, and sends each Message it emits to `update`.
   subscriptions,
+  // Routing: the app has more than one page (src/route.ts). The address bar
+  // is outside the app, so the runtime watches it, and these two functions
+  // say which Message to make of what it sees.
+  //   onUrlRequest  a link in the page was clicked. The runtime has stopped
+  //                 the browser from loading it. It leaves alone a click
+  //                 with a modifier key or another mouse button, a link
+  //                 that opens in another tab, and a download link.
+  //   onUrlChange   the address changed: after the app asked for a new one,
+  //                 or because of the back or forward button.
+  // The presence of this option is also what lets `init` take the address
+  // as its second argument (src/main.ts, INIT): the runtime passes it the
+  // address the page was opened at.
+  routing: {
+    onUrlRequest: request => Message.ClickedLink({ request }),
+    onUrlChange: url => Message.ChangedUrl({ url }),
+  },
   // The element the app is rendered into: `<div id="root">` in index.html.
   // `getElementById` may return null, and Foldkit throws at once if it
   // does. The element must have an id, which the runtime uses to tell this
@@ -114,7 +129,7 @@ const application = Runtime.makeApplication({
 
 // Starts the app, for as long as the page lives. The runtime runs the `flags`
 // Effect (the saved preferences, read from localStorage), calls `init` with
-// the result, renders the first Model into the container, and begins the
+// the result and the page's address, renders the first Model into the container, and begins the
 // loop. `run` returns nothing: from here on everything happens inside the
 // runtime.
 //
