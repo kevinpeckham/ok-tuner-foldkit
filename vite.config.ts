@@ -190,6 +190,13 @@ export default defineConfig({
       })),
   ],
   build: {
+    // Where the built files go is left to Vite's defaults, and one of them
+    // is relied on elsewhere: the script and the stylesheet are written to
+    // `assets/` (`build.assetsDir`) with a hash of their contents in the
+    // name. `vercel.json` tells browsers to keep everything under `/assets/`
+    // for a year, which is only right for names like that (AGENTS.md,
+    // "Prerendering").
+    //
     // `'hidden'` makes Vite write the source map files but leave out of each
     // bundle the comment that points to its map. The maps exist for the
     // upload, and nothing served to a browser refers to them. `false`, for
