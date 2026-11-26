@@ -15,6 +15,10 @@
 //     sentence with `failureSentence`.
 //   - `readMeasurement`: one reading of the live audio. The `readings`
 //     Subscription in `main.ts` calls it every 50 ms.
+//   - `closeOpenMicrophones`: stops every stream this file has open. Only
+//     the crash hook in `src/entry.ts` calls it, because a crashed runtime
+//     releases nothing. It is the one piece of state in the app that lives
+//     outside the Model: see "OPEN STREAMS" below.
 //
 // Why a managed resource. A Foldkit Command does one piece of work and ends
 // with a Message. A microphone is not like that: it has to stay open for as
@@ -65,7 +69,8 @@ export const WINDOW = 4096
 // The sentences shown to the person when the microphone cannot be opened.
 // REFUSED and UNSUPPORTED keep the wording of the Stem Shovel tuner this app
 // is a port of, and are exported because the tests assert on them.
-// UNEXPLAINED is the fallback for an error that arrives with no message.
+// UNEXPLAINED is the fallback for an error that arrives with no message, or
+// with one that is only white space.
 export const REFUSED =
   'Microphone access was refused. Allow it in the browser to tune.'
 export const UNSUPPORTED = 'This browser cannot open the microphone.'
@@ -283,7 +288,10 @@ export const microphoneFailure = (error: unknown): MicrophoneFailure => {
 // what Foldkit code uses where plain TypeScript would use `switch`
 // (FOLDKIT.md, "Code Style"). `src/view.ts` calls this function to fill the
 // alert. An `Unexpected` failure shows the browser's own message when there
-// is one.
+// is one. A message of nothing but white space counts as none: shown as it
+// came, it made an alert with no words in it. `String.trim` is Effect's, and
+// takes the string as its argument. Only the test trims. A message that
+// says something is shown as it came.
 /** What to tell the person when the microphone could not be opened. */
 export const failureSentence = (failure: MicrophoneFailure): string =>
   MicrophoneFailure.match(failure, {
@@ -293,7 +301,7 @@ export const failureSentence = (failure: MicrophoneFailure): string =>
     Busy: () => BUSY,
     Lost: () => LOST,
     Unexpected: ({ detail }) =>
-      String.isNonEmpty(detail) ? detail : UNEXPLAINED,
+      String.isNonEmpty(String.trim(detail)) ? detail : UNEXPLAINED,
   })
 
 // ACQUIRE
@@ -309,6 +317,56 @@ export const failureSentence = (failure: MicrophoneFailure): string =>
 const toMicrophoneError = (error: unknown): MicrophoneError =>
   new MicrophoneError({ failure: microphoneFailure(error) })
 
+// OPEN STREAMS
+//
+// NOTE: this is state outside the Model, and it is deliberate. Everywhere
+// else in the app, what the app knows is in the Model and changes only in
+// `update`. A `MediaStream` cannot be in the Model (it is a live browser
+// object, not data a Schema can describe), so the runtime keeps the open
+// microphone for us, behind the `Microphone` tag, and closes it when the
+// Model stops asking for it. That is enough until the app crashes. A
+// crashed runtime drops every later Message, so the Model never changes
+// again and `releaseMicrophone` is never run. Nor does the runtime hand
+// the handle to the crash hooks: they get the error, the Model and the
+// Message (`renderCrashView` in
+// `repos/foldkit/packages/foldkit/src/runtime/crashUI.ts`). The stream's
+// track would stay live and the browser would go on showing its microphone
+// indicator, under a screen that says the tuner has stopped.
+//
+// So this file keeps its own note of the streams it has opened and not yet
+// stopped: added in `openStream`, the moment the browser hands one over,
+// and removed in `stopTracks`, the one place a stream is stopped. Nothing
+// reads the set but `closeOpenMicrophones`. It is a `Set` and not a single
+// variable because two streams can be open for a moment, and because a
+// stream must be forgotten by identity when it is stopped.
+//
+// Keep it this small. It is not a second source of truth about whether the
+// tuner is on: that is `model.tuner`, and nothing may decide anything from
+// this set.
+const openStreams = new Set<MediaStream>()
+
+// What the crash hook calls (`src/entry.ts`). It is a plain function and
+// not an Effect: the hook is called by a runtime that has stopped running
+// Effects, and has to finish before the crash screen is drawn.
+//
+// Only the tracks are stopped, which is what turns the microphone and the
+// browser's indicator off. The audio context is left alone: it holds no
+// microphone, and it ends with the page. The set is copied before it is
+// emptied so that each stream is stopped once even if this is called
+// twice.
+//
+// One case is not covered. If the app crashes while the browser is still
+// asking for permission, and the person then allows it, that stream is
+// opened after this has run and stays open (docs/backlog.md).
+/** Stops every microphone stream this module has open. For the crash hook. */
+export const closeOpenMicrophones = (): void => {
+  const streams = [...openStreams]
+  openStreams.clear()
+  streams.forEach(stream => {
+    stream.getTracks().forEach(track => track.stop())
+  })
+}
+
 // Step 1: ask the browser for the microphone.
 //
 // `Effect.suspend(() => effect)` puts off building the Effect until it is
@@ -322,6 +380,11 @@ const toMicrophoneError = (error: unknown): MicrophoneError =>
 // it rejects, `catch` turns the reason into the typed error. `getUserMedia`
 // is the call that makes the browser ask for permission, and it rejects with
 // a `NotAllowedError` when permission is denied.
+//
+// `Effect.tap(effect, f)` runs `f` on the success value for its side effect
+// and passes the value on unchanged. Here it notes the new stream in
+// `openStreams` before anything else can happen to it, so a crash at any
+// later moment finds it there.
 //
 // The DOM types say `navigator.mediaDevices` always exists. The annotation on
 // the local widens it to `| undefined`, because the check below is for
@@ -338,21 +401,31 @@ const openStream: Effect.Effect<MediaStream, MicrophoneError> = Effect.suspend(
         new MicrophoneError({ failure: MicrophoneFailure.Unsupported() }),
       )
     } else {
-      return Effect.tryPromise({
-        try: () => mediaDevices.getUserMedia(AUDIO_CONSTRAINTS),
-        catch: toMicrophoneError,
-      })
+      return Effect.tap(
+        Effect.tryPromise({
+          try: () => mediaDevices.getUserMedia(AUDIO_CONSTRAINTS),
+          catch: toMicrophoneError,
+        }),
+        stream =>
+          Effect.sync(() => {
+            openStreams.add(stream)
+          }),
+      )
     }
   },
 )
 
-// Turns the microphone off, by stopping every track of the stream.
+// Turns the microphone off, by stopping every track of the stream, and
+// takes the stream off the list of open ones (`openStreams` above). Both
+// ways a stream ends in the ordinary course come through here: a release,
+// and a start that failed after the stream had opened.
 // `Effect.sync(() => ...)` wraps synchronous code that is not expected to
 // throw. Its failure type is `never`, hence the return type
 // `Effect.Effect<void>` with no error named.
 const stopTracks = (stream: MediaStream): Effect.Effect<void> =>
   Effect.sync(() => {
     stream.getTracks().forEach(track => track.stop())
+    openStreams.delete(stream)
   })
 
 // Closes the audio context. `context.close()` returns a Promise, so it is

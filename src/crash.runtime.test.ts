@@ -14,7 +14,9 @@
 //   1. the report is made once, and before the screen is drawn;
 //   2. the screen takes the place of whatever the app had drawn;
 //   3. the links on it still work, although the runtime that would have
-//      handled a click is dead.
+//      handled a click is dead;
+//   4. the microphone is closed by the same hook that reports, after the
+//      report, whichever of the two throws (`reportThenClose`).
 //
 // The third is the reason for most of `src/crash.ts`, and it is about what
 // the runtime does to a click, so nothing short of a runtime can test it.
@@ -106,12 +108,24 @@ const bodyText = (): string => document.body.textContent ?? ''
 
 type Running = Readonly<{ fiber: Fiber.Fiber<void>; reports: Array<Report> }>
 
+// The shape of a report hook, as this file's small app needs it: it is
+// handed the crash and returns nothing.
+type ReportHook = (context: Readonly<{ error: Error }>) => void
+
 let maybeRunning: Running | undefined
 
 // Starts the app in a fresh container, wired as `src/entry.ts` wires the
 // tuner: routing on, our crash view, and a report hook. The hook here
 // records instead of calling Sentry.
-const boot = (): Running => {
+//
+// `wrap` is for the tests of `reportThenClose` at the end of the file. It
+// is given the recording hook and returns the hook the runtime gets, so a
+// test can put `Crash.reportThenClose` round it as `src/entry.ts` does
+// round `reportCrash`. Left out, the runtime gets the recording hook
+// itself.
+const boot = (
+  wrap: (report: ReportHook) => ReportHook = report => report,
+): Running => {
   const container = document.createElement('div')
   // The runtime refuses a container with no id: in development it files the
   // Model it saves across a reload under that id.
@@ -133,12 +147,12 @@ const boot = (): Running => {
     },
     crash: {
       view: Crash.view,
-      report: ({ error }) => {
+      report: wrap(({ error }) => {
         reports.push({
           errorText: error.message,
           wasScreenDrawn: bodyText().includes(HEADING),
         })
-      },
+      }),
     },
     devTools: false,
   })
@@ -161,8 +175,10 @@ const waitForBodyText = async (wanted: string): Promise<void> => {
   }
 }
 
-const crash = async (): Promise<Running> => {
-  const running = boot()
+const crash = async (
+  wrap?: (report: ReportHook) => ReportHook,
+): Promise<Running> => {
+  const running = boot(wrap)
   await waitForBodyText(APP_BUTTON)
   document.querySelector('button')?.click()
   await waitForBodyText(HEADING)
@@ -235,8 +251,8 @@ describe('a crashed runtime with our crash view', () => {
     expect(bodyText()).not.toContain(ERROR_TEXT)
   })
 
-  // `src/entry.ts` keeps `report: reportCrash` beside the new `view`. Adding
-  // a view must not cost the report, or move it after the drawing.
+  // `src/entry.ts` keeps a `report` hook beside the `view`. Having a view
+  // must not cost the report, or move it after the drawing.
   test('reports once, before the screen is drawn', async () => {
     const { reports } = await crash()
 
@@ -275,4 +291,78 @@ describe('a crashed runtime with our crash view', () => {
       expect(isClickCancelled(linkNamed(name))).toBe(false)
     },
   )
+})
+
+// `reportThenClose` builds the `crash.report` hook of `src/entry.ts`: it
+// reports the crash, then closes the microphone, which a crashed runtime
+// would otherwise leave open (FINDINGS.md, "A crash releases nothing, so
+// the app closes the microphone itself"). Three promises are pinned here,
+// in a runtime that really crashes:
+//
+//   - the report comes first, and the closing comes before the screen;
+//   - a report that throws does not cost the closing;
+//   - a closing that throws does not cost the report, which has already
+//     been made, nor the screen.
+//
+// The closing here is a function that records. That the real one,
+// `closeOpenMicrophones`, stops the stream of the real app is shown in
+// `src/app.runtime.test.ts`.
+//
+// When the hook throws, the runtime catches it and logs "[foldkit]
+// crash.report failed" (`renderCrashView` in
+// `repos/foldkit/packages/foldkit/src/runtime/crashUI.ts`), then draws the
+// crash view as usual. So a throw shows in the test's output and nowhere on
+// the page.
+describe('the crash hook that reports and then closes the microphone', () => {
+  test('reports, then closes, both before the screen is drawn', async () => {
+    const order: Array<string> = []
+    const { reports } = await crash(report =>
+      Crash.reportThenClose(
+        context => {
+          report(context)
+          order.push('reported')
+        },
+        () => {
+          order.push(
+            bodyText().includes(HEADING)
+              ? 'closed after the screen'
+              : 'closed before the screen',
+          )
+        },
+      ),
+    )
+
+    expect(order).toEqual(['reported', 'closed before the screen'])
+    expect(reports).toEqual([{ errorText: ERROR_TEXT, wasScreenDrawn: false }])
+  })
+
+  test('a report that throws still closes the microphone, and the screen is drawn', async () => {
+    const closed: Array<string> = []
+    await crash(() =>
+      Crash.reportThenClose(
+        () => {
+          throw new Error('the report failed')
+        },
+        () => {
+          closed.push('closed')
+        },
+      ),
+    )
+
+    expect(closed).toEqual(['closed'])
+    expect(bodyText()).toContain(HEADING)
+    expect(bodyText()).not.toContain('Application Crash')
+  })
+
+  test('a closing that throws comes after the report, and the screen is drawn', async () => {
+    const { reports } = await crash(report =>
+      Crash.reportThenClose(report, () => {
+        throw new Error('the closing failed')
+      }),
+    )
+
+    expect(reports).toEqual([{ errorText: ERROR_TEXT, wasScreenDrawn: false }])
+    expect(bodyText()).toContain(HEADING)
+    expect(bodyText()).not.toContain('Application Crash')
+  })
 })

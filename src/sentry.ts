@@ -276,9 +276,9 @@ type Crash = Readonly<{
   message: Option.Option<unknown>
 }>
 
-// Route 1 in the header. `entry.ts` wires it in with
-// `crash: { report: reportCrash }`, and the runtime calls it when it
-// crashes.
+// Route 1 in the header. `entry.ts` wires it in as the first half of the
+// `crash.report` hook (`Crash.reportThenClose(reportCrash, ...)`), and the
+// runtime calls it when it crashes.
 //
 // `Sentry.captureException(error, context)` sends the error as a report.
 // `extra` is free-form data shown with the report in Sentry: here the Model,

@@ -37,7 +37,13 @@ The app has routing: the routes are in `src/route.ts`, and the route is a field 
 - **Nothing on it may need a Message or a script.** Its builder is an `HtmlBuilder<never>`, and the Content Security Policy refuses an inline handler such as `onclick`.
 - **It is for a visitor.** No error text, no stack, no Model. It does not say the problem was reported, because it cannot know.
 - **It does not import `src/view.ts` or `src/main.ts`,** the code that may have just thrown. The frame's classes come from `src/layout.ts`, so a change to the site's look there reaches it.
+- **A crash closes the microphone, because Foldkit will not.** A crashed runtime releases no managed resource. The `crash.report` hook in `src/entry.ts` is `Crash.reportThenClose(reportCrash, closeOpenMicrophones)`: it reports, then stops every stream `src/microphone.ts` has open. Anything else the app ever holds open that must not outlive a crash is closed there too (`FINDINGS.md`, "A crash releases nothing, so the app closes the microphone itself").
 - **Look at it after changing it.** No page leads to it. Force a crash in headless Chrome against a build served with the site's headers (`FINDINGS.md`, "A crash is forced in the real page from outside the app").
+
+### The tuner's face
+
+- **One rule says "in tune", in one place.** The needle rounded to a whole cent, within `IN_TUNE_CENTS`: `toDisplay` in `src/view.ts` works it out, and the word, the needle's colour, the lit chip's colour and the green zone all come from there. Do not compare cents with `IN_TUNE_CENTS` anywhere else: the number and the word once disagreed because two places did.
+- **Words that come and go have their room kept.** The waiting line and the failure line are drawn inside `messagesView`, a block that is as tall without them as with them, so the page does not move. A new line of that kind goes in the same block. After changing it, or the sentences in `src/microphone.ts`, measure the pedal with no line, with the waiting line and with the longest sentence, at 1280 and 375 px (`FINDINGS.md`, "A line that comes and goes must have its room kept").
 
 ### Tunings
 
@@ -48,7 +54,8 @@ The tunings are the list `TUNINGS` in `src/tuning.ts`. To add one:
 - List the strings in the order they sit on the instrument, as a player reads them, not sorted by pitch. Strings tuned together to one note are listed once.
 - Add the id to the list pinned in `src/tuning.test.ts`. The other guards need nothing: the detector's test runs every string of every tuning, and the key test checks that no two chips of a row share a key.
 - Update the how-to page's first tip (`src/page/howTo.ts`), which names the tunings in words. A test fails if the instrument is new and the page does not name it.
-- Look at the open list in a browser. It scrolls in a short window (`FINDINGS.md`).
+- Look at the open list in a browser, at 1366 by 768 as well as on a tall window. It must show every tuning there without scrolling: it opens upwards when there is too little room below. A longer list will stop fitting at some point, and a window too short for it on both sides gets a scrolling list with a soft edge where there is more (`scroll-cue` in `src/styles.css`).
+- Never give the list a `max-h-...` class. The Listbox sizes the list itself, and a height class makes it open on the wrong side (`FINDINGS.md`, "A height class on the open list stopped it opening upwards").
 
 ### The site is public
 
@@ -108,6 +115,7 @@ The build writes each page as an HTML file (`src/entry.server.ts`), and the brow
 
 - `src/pitch.ts` uses `for` and `while` loops and mutable locals on purpose. Each reading compares millions of samples, so this one module is exempt from the "no loops" rule. Keep the exemption to that file.
 - Commit messages carry no `Co-Authored-By` or other attribution lines.
+- **One piece of state lives outside the Model, on purpose:** the set of open microphone streams in `src/microphone.ts`, kept only so that a crash can close them. Nothing may read it to decide anything, and it is not a precedent: state belongs in the Model.
 - **The code is commented for teaching.** `FOLDKIT.md` says not to add comments that explain code. This project is an example for learning Foldkit, so it does the opposite on purpose (Kevin, 2026-11-24): each file opens with what it is and where it sits, and each declaration says what it does, with the most words spent on what is particular to Foldkit. When you change code, change the comments beside it in the same commit: a comment that no longer matches the code teaches the wrong thing. Check any statement about Foldkit against `FOLDKIT.md` or the source in `repos/foldkit/` before writing it. `// NOTE:` keeps its meaning: behaviour that would mislead a careful reader.
 
 ### Deliberately later

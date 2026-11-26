@@ -85,3 +85,48 @@
   --color-accent: #ebf92f;
   --color-maximum-yellow: oklch(0.9406 0.201 113.9);
 }
+
+/*
+ * `scroll-cue`: shows that a list scrolls, and which way, where the system
+ * draws no scrollbar (macOS and phones hide theirs until the list moves).
+ * It is used by the open tuning list (`tuningPickerView` in view.ts), which
+ * scrolls only in a window too short to hold it above or below its button.
+ *
+ * `@utility` is how Tailwind 4 takes a class of our own: the name works in
+ * `h.Class(...)` like any other, and the rule is written to the built
+ * stylesheet only if some file uses it.
+ *
+ * How it works. The list is given four background pictures and no script.
+ * Two are "shadows": a darker band along the top edge and one along the
+ * bottom edge. They are fixed to the box (`scroll`), so they are always at
+ * the edges. The other two are "covers": the list's own ground colour,
+ * fading out. They are fixed to the content (`local`), so they sit at the
+ * very start and the very end of what scrolls, and are listed first, which
+ * paints them on top. At the top of the list the first cover hides the top
+ * shadow. Scroll down and the cover leaves with the first option, and the
+ * shadow shows: there is more above. The bottom pair works the same way.
+ * A list that does not scroll has both covers in place and shows nothing.
+ *
+ * The pictures are painted under the options, so they take no room and
+ * change nothing for the keyboard or a screen reader. The ground colour is
+ * still the element's `background-color` (`bg-oxford`), which these do not
+ * touch. The covers must be that same colour to hide the shadows.
+ *
+ * Why it is here and not an inline `<style>`: the site's Content Security
+ * Policy takes stylesheets from the site only (`vercel.json`).
+ */
+@utility scroll-cue {
+  background-image:
+    linear-gradient(var(--color-oxford) 40%, transparent),
+    linear-gradient(transparent, var(--color-oxford) 60%),
+    linear-gradient(var(--color-oxford-950), transparent),
+    linear-gradient(transparent, var(--color-oxford-950));
+  background-position: top, bottom, top, bottom;
+  background-repeat: no-repeat;
+  background-size:
+    100% 40px,
+    100% 40px,
+    100% 16px,
+    100% 16px;
+  background-attachment: local, local, scroll, scroll;
+}

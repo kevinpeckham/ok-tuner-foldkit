@@ -9,7 +9,7 @@ Items are grouped by kind, not ranked.
 - **Start listening when the pointer enters the page.** Agreed during design, to follow the basics.
 - **Pitch detection off the main thread.** `detectPitch` runs on the main thread every 50 ms. Weigh an `AudioWorklet` or a Web Worker: the gain is a steadier needle on slow phones, the cost is a second build entry and message passing. Measure on a slow phone before deciding.
 - **Development only:** a hot reload that restores "on" may leave the audio context suspended until a click.
-- **The microphone stays open after a crash.** Foldkit closes no managed resource when the runtime crashes, so after a crash while listening the stream's track is still live and the browser goes on showing its microphone indicator, under a screen that says the tuner has stopped. Reloading the page ends it. Seen in headless Chrome on 2026-11-26 (`FINDINGS.md`, "What a crash view is given, and what the runtime does with it"). The crash hooks are handed the Model, not the microphone, so closing it means keeping a way to reach the stream from outside the runtime.
+- **A microphone that opens after a crash stays open.** Since 0.7.2 a crash stops every stream the app has open (`closeOpenMicrophones` in `src/microphone.ts`). One case is left: the app crashes while the browser is still asking for permission, and the person then allows it. That stream is opened after the crash hook has run, and nothing closes it until the page is reloaded. Not seen, read from the code. Closing it means remembering that the app has crashed, a second piece of state outside the Model (`FINDINGS.md`, "A crash releases nothing, so the app closes the microphone itself").
 
 ## Screen readers and keyboard
 
@@ -22,11 +22,8 @@ Items are grouped by kind, not ranked.
 
 ## Model and code
 
-- **"+5 cents · sharp".** The word comes from the unrounded needle and the number is rounded, so a needle at 5.4 reads "+5 cents · sharp" while 5 reads "+5 cents · in tune". Read from the code, not seen.
-- **`max-h-64` and `overflow-y-auto` on the tuning list do nothing.** The Listbox sets both inline. Remove the classes, or size the list the way the Listbox allows.
 - **Tuning id as a plain string.** `tuningId` is `Schema.String`, with unknown ids falling back to standard. Reconsider a literal union of the eleven ids, so an invalid id cannot be represented.
 - **A4 field accepts decimals** such as 442.5 and forms such as "4e2". The design says steps of 1. Decide, then change `parseA4` and the test that pins 442.5.
-- **"-0 cents".** A needle between −0.5 and 0 prints "-0 cents", as the original does.
 
 ## Tests
 
@@ -45,7 +42,7 @@ Worked through on 2026-11-26 (`docs/superpowers/specs/2026-11-26-test-debt-desig
 
 ## Build
 
-- **Tailwind still reads the comments in `src`.** The scan is limited to `src` since 2026-11-26, so documents no longer add rules. Comments and tests under `src` still do: ten unused rules (`.hidden`, `.static`, `.table` and others) are in the built stylesheet (see `FINDINGS.md`). Ending it means naming the files that hold classes (`source(none)` and `@source` lines), and then a class written in a file that is not named would silently get no rule.
+- **Tailwind still reads the comments in `src`.** The scan is limited to `src` since 2026-11-26, so documents no longer add rules. Comments and tests under `src` still do: ten unused rules (`.hidden`, `.static`, `.table` and others) are in the built stylesheet (see `FINDINGS.md`). Since 0.7.2 there are two more, `.max-h-64` and `.overflow-y-auto`: the tuning list no longer uses them, and a test that says so, and a comment, still name them. Ending it means naming the files that hold classes (`source(none)` and `@source` lines), and then a class written in a file that is not named would silently get no rule.
 - **A missing file under `/assets/` is probably cacheable for a year.** The rule in `vercel.json` that lets a browser keep a hashed file fits any address under `/assets/`, and Vercel applies a rule to a 404 as well (the live 404 carries the Content Security Policy). To check on the live site: the browser check prints the `Cache-Control` of a missing file (`FINDINGS.md`, "Hashed files are kept for a year"). If it says `immutable`, a browser that asked for a script that was gone would keep that answer, which matters only if a rollback brings the same file name back. `vercel.json` has no condition for "the file exists".
 
 ## Pages and routing
@@ -61,13 +58,8 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 
 - **Custom device skins for the tuner.** Other faces for the pedal, chosen by the person and remembered with the tuning and A4.
 - **A color-splash background** behind the tuner, in place of the flat dark ground.
-- **The open tuning list scrolls in a short window, with nothing to say so.** The list of eleven is 396 px tall. In a window 1366 by 768 it gets 270 px: seven tunings show, and the last four (bass five-string, ukulele, mandolin, banjo) are reached by scrolling the list, by the wheel or the End key. Where the system hides scrollbars nothing shows there is more but a half-cut row. It scrolled with nine as well. Measured in headless Chrome on 2026-11-26. Ways out: a shorter row, a list that opens upwards when there is more room above, or a visible scrollbar. The Listbox sets the list's `max-height` itself (see the `max-h-64` item under "Model and code").
-- **The pedal grows when a line appears under the On / Off button.** The "waiting for the microphone" line makes it 52 px taller at desktop width and 72 px on a phone, and the failure line does the same, so the link under the tuner moves down and back. Measured in headless Chrome on 2026-11-26. Reserving the room would make the pedal taller all the time.
+- **The room kept for a line by the On / Off button: too much on a phone, and not always enough.** Since 0.7.2 the waiting line and the failure line have their room kept, so the page no longer moves. Beside the button, from 640 px up, that costs nothing. Under it on a phone it makes the pedal 68 px taller all the time (466.5 px against 398.5), for a line that is rarely there. And two things still outgrow the room and move the page as before: the longest sentence on a 320 px phone (four lines where three are kept, 20 px), and a long message from the browser itself. Measured in headless Chrome on 2026-11-26. The way to get the height back is to show both lines on the tuner's screen, which is empty whenever either shows: weighed and left out of `docs/superpowers/specs/2026-11-26-rough-edges-design.md` because it changes where the tuner speaks.
 
 ## Page content
 
-- **Ad-free and tracker-free, in the title.** Update the page title to say so.
-- **A microphone error whose message is only spaces** shows an empty alert. Fall back to the plain sentence.
 - **Font.** The system font is fine for now; may be revisited.
-
-> Wording is to be settled when this work starts. Sentry reports errors to a third party, and although no IP address is stored, Sentry attaches an approximate location (country, region, city) to each report, so plain "tracker-free" may claim too much. Kevin's suggestion (2026-11-24): "ad-free, ad-tracker-free" may be the more precise claim.

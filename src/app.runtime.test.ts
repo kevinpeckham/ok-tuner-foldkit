@@ -11,7 +11,9 @@
 //   2. the two navigation Commands, run and not only returned;
 //   3. the microphone being opened and closed as the Model asks;
 //   4. the readings Subscription: a reading every 50 ms while the tuner is
-//      listening, and the microphone reported lost when its track has ended.
+//      listening, and the microphone reported lost when its track has ended;
+//   5. a crash while the tuner listens: the runtime releases nothing, and
+//      the crash hook closes the microphone.
 //
 // WHY THE OTHER TESTS CANNOT
 //
@@ -49,7 +51,8 @@
 // - `src/entry.ts` itself. Importing it would start Sentry and the
 //   analytics and call `Runtime.hydrate`. The `routing` option below is a
 //   copy of the two lines there, and the compiler holds both to the same
-//   type.
+//   type. The crash test's `crash` option is a copy too, with a function
+//   that records in the place of `reportCrash`.
 // - Taking over a prerendered page. The live site starts with
 //   `Runtime.hydrate`, over HTML the build drew. This file starts with
 //   `start()`, which draws into an empty container.
@@ -62,6 +65,7 @@ import { Effect, Fiber } from 'effect'
 import { Runtime } from 'foldkit'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
+import * as Crash from './crash'
 import {
   Message,
   Model,
@@ -70,7 +74,7 @@ import {
   subscriptions,
   update,
 } from './main'
-import { LOST, WINDOW } from './microphone'
+import { LOST, WINDOW, closeOpenMicrophones } from './microphone'
 import { PAGE_HEADING_ID } from './route'
 import { GITHUB_URL } from './site'
 import { view } from './view'
@@ -83,12 +87,17 @@ let maybeFiber: Fiber.Fiber<void> | undefined
 
 // Starts the app in a fresh container, as `src/entry.ts` does, with four
 // differences. The app is started with `start()` and not hydrated. There is
-// no `crash` option, so a crash would show Foldkit's own screen, with the
-// error on it, and fail the test that was waiting for something else. The
-// DevTools are off. And `slow: false` silences the runtime's warnings about
-// a slow render: the first drawing of the whole tuner takes longer in
-// happy-dom than the budget of one frame, and the warning prints the Model.
-const boot = (): void => {
+// no `crash` option unless a test passes one, so a crash would show
+// Foldkit's own screen, with the error on it, and fail the test that was
+// waiting for something else. The DevTools are off. And `slow: false`
+// silences the runtime's warnings about a slow render: the first drawing of
+// the whole tuner takes longer in happy-dom than the budget of one frame,
+// and the warning prints the Model.
+//
+// `crash` is for the one test that crashes the app on purpose.
+// `Runtime.CrashConfig<Model, Message>` is Foldkit's type for the option:
+// the two hooks, each optional.
+const boot = (crash?: Runtime.CrashConfig<Model, Message>): void => {
   const container = document.createElement('div')
   // The runtime refuses a container with no id (`src/crash.runtime.test.ts`).
   container.id = 'app'
@@ -107,6 +116,9 @@ const boot = (): void => {
       onUrlChange: url => Message.ChangedUrl({ url }),
     },
     container,
+    // Spreading an object that is empty or holds the one key adds the
+    // option only when a test gave it.
+    ...(crash === undefined ? {} : { crash }),
     devTools: false,
     slow: false,
   })
@@ -173,8 +185,10 @@ const click = (element: Element): MouseEvent => {
 // button comes alive when the Command that `init` returned has read the
 // saved preferences. So an enabled button also shows that the runtime runs
 // Commands.
-const start = async (): Promise<void> => {
-  boot()
+const start = async (
+  crash?: Runtime.CrashConfig<Model, Message>,
+): Promise<void> => {
+  boot(crash)
   await eventually(() => {
     expect(powerButton().getAttribute('aria-disabled')).not.toBe('true')
   })
@@ -188,6 +202,11 @@ afterEach(async () => {
   document.body.replaceChildren()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  // `src/microphone.ts` keeps a note of the streams it has open, in the
+  // module and not in the Model. Stopping the runtime released them all,
+  // so this finds nothing. It is here so that a test which goes wrong
+  // cannot leave a stream for the next one to find.
+  closeOpenMicrophones()
   // The next test starts on the tuner's page again. `replaceState` moves
   // the address without telling the runtime, which is stopped by now.
   window.history.replaceState({}, '', '/')
@@ -206,7 +225,8 @@ const A2_TONE = Float32Array.from(
 // What a test can see and do to the stand-in.
 //   track           the stream's one track. A test sets its `readyState` to
 //                   'ended', which is what a browser does when the
-//                   microphone is unplugged.
+//                   microphone is unplugged. Stopping the track ends it
+//                   too, as in a browser.
 //   getUserMedia    counts how often the microphone was asked for.
 //   read            counts the readings taken: each is one call of the
 //                   analyser's `getFloatTimeDomainData`.
@@ -225,7 +245,11 @@ type StandIn = Readonly<{
 // `acquireMicrophone`, the managed resource, the Subscription, pitch
 // detection, `update` and the view.
 const installMicrophone = (): StandIn => {
-  const stop = vi.fn()
+  // `stop` names `track` before the line that declares it. That is sound:
+  // the function is not called until a test is running.
+  const stop = vi.fn(() => {
+    track.readyState = 'ended'
+  })
   const track = { readyState: 'live', stop }
   const getUserMedia = vi.fn(() =>
     Promise.resolve({ getTracks: () => [track] }),
@@ -430,5 +454,72 @@ describe('the microphone and its readings', () => {
     })
     expect(powerButton().getAttribute('aria-pressed')).toBe('false')
     expect(microphone.getUserMedia).toHaveBeenCalledTimes(1)
+  })
+})
+
+// A crash while the tuner is listening. The runtime stops handling
+// Messages and releases nothing: the managed resource is released when the
+// Model stops asking for the microphone, and the Model never changes again.
+// Left at that, the stream's track stays live and the browser goes on
+// showing its microphone indicator under a screen that says the tuner has
+// stopped. So the crash hook closes it (`Crash.reportThenClose` and
+// `closeOpenMicrophones`, wired in `src/entry.ts`; FINDINGS.md, "A crash
+// releases nothing, so the app closes the microphone itself").
+//
+// The crash is made the way the browser check makes it: the next reading
+// throws inside the readings Subscription. The `crash` option is a copy of
+// the one in `src/entry.ts`, with a function that records in the place of
+// `reportCrash`, so nothing is sent anywhere.
+describe('a crash while the tuner listens', () => {
+  const CRASH_HEADING = 'The tuner has stopped'
+
+  const crashTheNextReading = (microphone: StandIn): void => {
+    microphone.read.mockImplementation(() => {
+      throw new Error('thrown on purpose by the app runtime test')
+    })
+  }
+
+  test('the crash hook stops the microphone’s track', async () => {
+    // The runtime logs the crash with `console.error`. It is expected
+    // here, so it is kept out of the test's output.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const microphone = installMicrophone()
+    const report = vi.fn()
+    await start({
+      view: Crash.view,
+      report: Crash.reportThenClose(report, closeOpenMicrophones),
+    })
+    await listen()
+    expect(microphone.track.readyState).toBe('live')
+
+    crashTheNextReading(microphone)
+
+    await eventually(() => {
+      expect(bodyText()).toContain(CRASH_HEADING)
+    })
+    expect(report).toHaveBeenCalledTimes(1)
+    expect(microphone.stop).toHaveBeenCalledTimes(1)
+    expect(microphone.track.readyState).toBe('ended')
+  })
+
+  // The control: the same crash with a hook that only reports. This is how
+  // the app was wired until 0.7.2, and it shows what the test above is
+  // for. The crashed runtime closes neither half of the microphone.
+  test('without the closing, the crashed runtime leaves the track live', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const microphone = installMicrophone()
+    await start({ view: Crash.view, report: vi.fn() })
+    await listen()
+
+    crashTheNextReading(microphone)
+
+    await eventually(() => {
+      expect(bodyText()).toContain(CRASH_HEADING)
+    })
+    // Long enough for a release to have happened, had there been one.
+    await pause(150)
+    expect(microphone.stop).not.toHaveBeenCalled()
+    expect(microphone.close).not.toHaveBeenCalled()
+    expect(microphone.track.readyState).toBe('live')
   })
 })

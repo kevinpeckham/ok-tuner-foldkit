@@ -8,6 +8,31 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### In tune is decided on the number as shown (2026-11-26, tuner)
+
+- **Symptom.** A needle at 5.4 cents read "+5 cents · sharp", and one at 5.0 read "+5 cents · in tune": the same number with two different words. A needle a hair flat read "-0 cents", and one a hair sharp "+0 cents". Read from the code first, then seen in headless Chrome with a tone 5.3 cents sharp and one 0.3 cents flat played as the microphone.
+- **Cause.** Two rules. The word, the needle's colour and the lit chip's colour came from the needle as the Model holds it, compared with 5. The number was that needle rounded, by `toFixed(0)`, which also writes negative zero as "-0".
+- **Fix.** One rule (Kevin's decision): the needle rounded to a whole cent is in tune when it is within `IN_TUNE_CENTS`. `toDisplay` rounds once (`wholeCents`: a half goes away from zero on both sides, and nothing rounds to negative zero) and derives `isInTune` from the result. The detail line prints that number, takes sharp or flat from its sign, and adds a plus only above zero. The marker and the chip read the same `isInTune`.
+- **What it changes for a player.** In tune now reaches to just under 5.5 cents either side, where it stopped at 5.0. The green zone of the needle bar is drawn to match, 5.5 either side, from the same constant: at 5 a green needle would have sat outside it.
+- **The rule to keep.** Nothing else in the view compares cents with `IN_TUNE_CENTS`. A second comparison somewhere else is how the number and the word came apart.
+- **Where.** IN TUNE in `src/view.ts`; "the colours agree" in `src/scene.test.ts`, which checks the number, the word and both colours in one scene for each boundary.
+
+### A line that comes and goes must have its room kept (2026-11-26, look)
+
+- **Symptom.** The "waiting for the microphone" line and the failure line each took their room only when they appeared. Measured in headless Chrome on `main`: the pedal was 398.5 px tall with no line, 450.5 with either at 1280 px, and at 375 px 470.5 with the waiting line and 490.5 with the longest failure sentence, which ran to four lines. The link under the tuner moved down and back by as much.
+- **Fix.** Both lines are drawn in one block that always keeps its room (`messagesView`). From 640 px up the block is beside the On / Off button, two lines of text tall, which is the button's own height: the pedal is 399.5 px in every state, one pixel more than before. Below 640 px it is under the button, three lines tall: the pedal is 466.5 px in every state.
+- **The cost.** A phone's pedal is 68 px taller all the time. In the backlog, with the way out that was weighed and left (showing the lines on the tuner's screen).
+- **How the two lines clear the badge.** The badge sits in the bottom right corner, out of the flow. The row carries `pb-3`, which with the pedal's own padding ends the last line of text 2 px above the badge's lettering, so a line may run the full width. On `main` the four-line sentence on a phone ran 6 px into the badge. To make that room on the desktop the button sits 11.5 px higher than it did.
+- **What still moves the page.** The longest sentence at 320 px (four lines, where three are kept) and a long message from the browser itself. In the backlog.
+- **The room is measured for one font.** Three lines and two are what headless Chrome on Linux needs. A system font with wider letters could need a line more.
+- **Where.** `powerRowView` and `messagesView` in `src/view.ts`; "the room kept for a line" in `src/scene.test.ts`; the design is `docs/superpowers/specs/2026-11-26-rough-edges-design.md`.
+
+### The title does not say "ad-free" or "tracker-free" (2026-11-26, page content)
+
+- **What was asked.** An early backlog item: say "ad-free and tracker-free" in the page title.
+- **Decision.** Kevin's, on 2026-11-26: leave the title alone. The site counts visits since 2026-11-25, so "tracker-free" would claim too much, and Sentry attaches an approximate location to an error report ("Sentry attaches a location even when it stores no IP address", below). "Ad-free" is already said where it can be explained: the footer and the Privacy page.
+- **Where.** `pageTitle` in `src/view.ts` is unchanged. The backlog item and its note are gone.
+
 ### The crash screen is written for a visitor, and announced as an alert (2026-11-26, crash screen)
 
 - **What it replaces.** Foldkit's default crash screen: a white card headed "Application Crash" with the error's message, a pointer to the browser console and a note on how to customise it. It is written for whoever is building the app.
@@ -45,7 +70,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **Why the clock and not the Permissions API.** Kevin's decision. `navigator.permissions.query({ name: 'microphone' })` can say that the person has yet to be asked. The reason given was that Firefox does not support that name. That is out of date: MDN's compatibility data lists it in Firefox from version 132 (October 2024), Chrome from 64 and Safari from 16. The clock still has two things the query has not: it works in a browser older than those, and it also speaks up when a start is slow with no prompt open. Using the query to show the line at once, with the clock as the fallback, is a possible later change.
 - **Why the attempts are numbered.** A Command runs to its end once returned, so a timer can report after its start is over. In any state but `Starting` the report changes nothing. But switch the tuner on, off and on again inside 1.2 seconds, and the first timer reports during the second start. Unnumbered, that showed the line for 0.2 seconds on a start that then opened (seen in headless Chrome with the comparison taken out). So the Model counts starts (`startCount`), `Starting` carries its `attempt`, the Command and its Message carry the same number, and `update` acts on a report only for the attempt in progress. `@foldkit/ui`'s hover intent numbers its delays the same way.
 - **Why the status region is always in the page.** The line is announced through `role="status"`. A screen reader announces a change inside a live region it already knows about, and may say nothing when a region arrives with its text already in it (MDN, "ARIA live regions": include the region in the initial markup). So the region is drawn empty from the first render, prerendered file included, and only the paragraph inside it comes and goes. A `role="alert"`, like the failure line, is the exception browsers make. Not checked with a screen reader.
-- **What a visitor sees.** A start that needs no prompt took about 0.11 seconds in headless Chrome, so it never shows the line. The line's contrast against the pedal is 4.9:1 at its lowest. The pedal grows by the height of the line while it shows (in the backlog, under "Look").
+- **What a visitor sees.** A start that needs no prompt took about 0.11 seconds in headless Chrome, so it never shows the line. The line's contrast against the pedal is 4.9:1 at its lowest. The pedal grew by the height of the line while it showed, until 0.7.2 kept its room ("A line that comes and goes must have its room kept", above).
 - **No cancel button.** The browser's prompt has one.
 - **Where.** `WaitBeforeSlowStartHint`, `startTuner` and `CompletedWaitBeforeSlowStartHint` in `src/main.ts`; `startHintView` in `src/view.ts`; "waiting for the microphone" in both test files; the design is `docs/superpowers/specs/2026-11-26-microphone-polish-design.md`.
 
@@ -183,6 +208,30 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Foldkit and Effect
 
+### A crash releases nothing, so the app closes the microphone itself (2026-11-26, Foldkit)
+
+- **Symptom.** After a crash while the tuner was listening, the stream's track was still `live`: the browser went on showing its microphone indicator under a screen that says the tuner has stopped. Seen in headless Chrome against the build of `main`.
+- **Cause.** A crash sets a flag that makes the runtime drop every later Message, calls `crash.report`, then `crash.view`, and patches the screen in (`crashWith` in `repos/foldkit/packages/foldkit/src/runtime/renderer.ts`, `renderCrashView` in `crashUI.ts`). It does not close its scope. A managed resource is released when the Model stops asking for it or when the scope closes (`managedResourceFibers.ts`), and after a crash neither happens: the Model never changes again.
+- **The hooks are not given the microphone.** They get the error, the Model and the Message. The handle is in a cell inside the runtime.
+- **Fix.** `src/microphone.ts` keeps a set of the streams it has open: added when `getUserMedia` answers, removed where the tracks are stopped. `closeOpenMicrophones` stops them. The `crash.report` hook is `Crash.reportThenClose(reportCrash, closeOpenMicrophones)`: the report first, then the closing in a `finally`, so a report that throws does not leave the microphone on, and the report has been made before the closing could throw. The runtime catches whatever the hook throws and draws the screen all the same.
+- **This is state outside the Model, on purpose.** It is the only such state in the app. A `MediaStream` is a live browser object and cannot be in the Model, and the runtime, which holds it for us, does not give it up after a crash. Nothing reads the set but `closeOpenMicrophones`, and nothing may decide anything from it: whether the tuner is on is `model.tuner`.
+- **Only the tracks are stopped.** That is what turns the microphone and the indicator off. The audio context is left to end with the page.
+- **Not covered.** A stream that opens after the crash: the app crashes while the browser is still asking for permission, and the person then allows it. In the backlog.
+- **Module state outlives a test.** The set is one per module, so a test that opens a microphone and never releases it leaves a stream for the next test in the file. `src/microphone.test.ts` and `src/app.runtime.test.ts` call `closeOpenMicrophones` in `afterEach`, and a stand-in track needs a `stop` for that.
+- **Seen.** Forced crash in headless Chrome: the track read `live` on the build of `main` and `ended` on this one.
+- **Where.** OPEN STREAMS in `src/microphone.ts`; `reportThenClose` in `src/crash.ts`; `crash` in `src/entry.ts`; "a crash while the tuner listens" in `src/app.runtime.test.ts`; "the crash hook that reports and then closes the microphone" in `src/crash.runtime.test.ts`.
+
+### A height class on the open list stopped it opening upwards (2026-11-26, Foldkit)
+
+- **Symptom.** In a window 1366 by 768 the open tuning list showed seven of eleven tunings and scrolled for the rest, with 436 px free above its button. The same at 1024 by 768, and on a 390 by 844 phone.
+- **What was believed.** That `max-h-64` on the list did nothing, because the Listbox sets `max-height` inline ("A Listbox's open list sizes itself", below). That is true of the list's final height and false of where it opens.
+- **Cause.** The Listbox places the list with Floating UI's `flip`, then `shift`, then `size` (`anchorSetup` in `repos/foldkit/packages/ui/src/anchor/anchor.ts`). `flip` moves the list to the other side of the button if it overflows the window where it is. `size` then writes the room left as an inline `max-height`. On the first pass there is no inline value yet, so the class held the list to 256 px. Under the button there were 270 px: 256 fits, `flip` saw no overflow and kept the list below, and `size` let it grow to 270. Every later pass started from a list 270 px tall, which still fitted.
+- **Fix.** No height class and no overflow class on the list. Measured at its full 396 px it overflows below and `flip` opens it upwards. In headless Chrome it now shows whole at 1366 by 768, 1024 by 768, 1280 by 720, 1280 by 600, 390 by 844, 375 by 667 and 360 by 640 (upwards), and at 1280 by 900 and 1920 by 1080 (downwards).
+- **Where it still scrolls.** A window with less than about 410 px free on both sides of the button: a phone held sideways (667 by 375), and a 320 by 568 phone with the page scrolled. There the list carries `scroll-cue`, a utility in `src/styles.css` that draws a soft dark edge at the top or bottom of the list while there is more that way. It is four background gradients, two fixed to the box and two that scroll with the content and cover them at the ends, so it needs no script and no state, and the Content Security Policy allows it as it does any rule of the site's stylesheet.
+- **Not seen on a real phone or a Mac.** The cue was looked at in headless Chrome only. A browser that does not know `background-attachment: local` drops the whole declaration, the covers then stay over the shadows, and no cue shows: no worse than before.
+- **The rule.** Never give a Listbox's list a `max-h-...` class. If a list must be shorter, that is a different change: fewer items, or a shorter row.
+- **Where.** `tuningPickerView` in `src/view.ts`; `@utility scroll-cue` in `src/styles.css`; "the open list is given no height of its own" in `src/scene.test.ts`.
+
 ### A plain link does nothing after a crash (2026-11-26, Foldkit)
 
 - **Symptom.** On a crashed page, a click on an ordinary `<a href>` did nothing at all: not a link to another page of the site, not a link to the page's own address, not a link to another site. Seen in headless Chrome, with links added to a crashed page by hand.
@@ -207,7 +256,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **The document.** The crash Document's `title` is written to `document.title`. A `lang` that is left out is left as the page has it. A `canonical` that is left out goes back to the one the file was served with. Seen: `lang="en"` and the home page's canonical address were still there after a crash.
 - **A prerendered page** makes no difference: by the time anything can crash the runtime has taken the server-drawn root over, and the crash screen is patched in like any render. The build draws none of it. A crash during the takeover's own first render was not tried.
 - **A throw in a Subscription is a crash,** with no Message: its stream is run under `Effect.catchCause(cause => crashWith(cause, Option.none()))` (`subscriptionFibers.ts`).
-- **The microphone stays open.** Nothing closes a managed resource when the runtime crashes: after a crash while listening, the stream's track was still `live`, so the browser goes on showing its microphone indicator until the page is reloaded. In the backlog.
+- **The microphone stays open, unless the app closes it.** Nothing closes a managed resource when the runtime crashes: after a crash while listening, the stream's track was still `live`, so the browser went on showing its microphone indicator until the page was reloaded. Since 0.7.2 the report hook closes it ("A crash releases nothing, so the app closes the microphone itself", above).
 - **Where.** `repos/foldkit/packages/foldkit/src/runtime/crashUI.ts` and `renderer.ts` (`crashWith`); `src/crash.ts`.
 
 ### A disabled Button still looks pressable unless the classes say otherwise (2026-11-26, Foldkit)
@@ -338,12 +387,14 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 - **What happens.** The Listbox gives the open list whatever height is left between the button and the edge of the window, less 8 px, and lets it scroll. With eleven tunings the list wants 396 px. Measured in headless Chrome: at 1280 by 900 it opens downwards and shows whole (401 px allowed). At 375 by 667 and at 1280 by 720 it opens upwards and shows whole. At 1366 by 768 it opens downwards with 270 px, shows seven tunings, and scrolls for the other four. At 320 by 568 it has 325 px and scrolls for the last two.
 - **Can every tuning be reached.** Yes: the wheel scrolls the list, and the End key moves to the last option and brings it into view.
-- **What is not good.** Nothing says the list scrolls where the system hides scrollbars, and the newest tunings are the ones out of sight. In the backlog, under "Look".
+- **What was not good.** Nothing said the list scrolled where the system hides scrollbars, and the newest tunings were the ones out of sight.
+- **Since 0.7.2** the list opens upwards at 1366 by 768 and shows whole, and carries a cue where it still scrolls. The measurements above are of the list as it was ("A height class on the open list stopped it opening upwards", above).
 - **Where.** `tuningPickerView` in `src/view.ts`.
 
 ### A Listbox's open list sizes itself (2026-11-24, Foldkit)
 
-- **What happens.** The Listbox's anchoring code sets `max-height` and `overflow-y` as inline styles on the open list, which beat classes. `max-h-64` and `overflow-y-auto` on the tuning list therefore do nothing: in the browser the list was 326 px tall against the 256 px the class asks for. In the backlog.
+- **What happens.** The Listbox's anchoring code sets `max-height` and `overflow-y` as inline styles on the open list, which beat classes. `max-h-64` and `overflow-y-auto` on the tuning list therefore do nothing: in the browser the list was 326 px tall against the 256 px the class asks for.
+- **Corrected on 2026-11-26.** "Do nothing" was wrong about `max-h-64`. It did not limit the list's final height, and it did decide which side of the button the list opened on. Both classes are gone ("A height class on the open list stopped it opening upwards", above).
 - **Where.** `tuningPickerView` in `src/view.ts`.
 
 ### Comments: Foldkit's rule, and why this project breaks it (2026-11-24, process)
@@ -354,6 +405,13 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **How it was checked.** The comments were added without touching code: each file, with comments stripped, was compared before and after.
 
 ## Testing
+
+### A boundary is checked in a real browser with a tone a few cents off (2026-11-26, tuner)
+
+- **How.** Chrome plays a WAV file as the microphone, so a tone at 441.349 Hz is an A4 5.3 cents sharp and one at 439.924 Hz is 0.3 cents flat. The detector reads them closely enough: the page settled on "441.3 Hz · +5 cents · in tune" and "439.9 Hz · 0 cents · in tune". On the build of `main` the same tones read "+5 cents · sharp", and "-0 cents" with a few "+0 cents".
+- **The needle wanders before it settles.** In the first second the first tone read from +3 to +6, because the fake microphone starts unsteadily and the needle is smoothed. So the check does not rest on one reading. It samples the page forty times and asks two things: that the number, the word and both colours agree in every sample, wherever the needle is, and that the ending seen most often in the second half of the samples is the one expected.
+- **One reading of the page per sample.** The line, the marker's class and the chip's class are read in a single call into the page, so they come from the same drawing.
+- **Where.** The script was session scratch (`rough-edges.ts` in the smoke folder), like the others ("Checking the real page in headless Chrome, with and without a microphone", below). The same script measures the pedal in three states and opens the tuning list at four window sizes.
 
 ### A click that opens a component is three steps in a Scene, and its closing a fourth (2026-11-26, tests)
 
@@ -422,7 +480,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 ### A crash is forced in the real page from outside the app (2026-11-26, crash screen)
 
 - **How.** In headless Chrome, with the fake microphone and the tuner listening, a script replaces `AnalyserNode.prototype.getFloatTimeDomainData` with a function that throws. The next reading throws inside the readings Subscription, and the runtime crashes within a twentieth of a second. No bug is shipped to make it possible.
-- **What it checks.** The screen and its words, the title, the alert, that nothing of the error is on the page, the three links and that each one loads its page (the reload by keyboard and by click), a working tuner after the reload, no Content Security Policy violation and no console error but the crash itself, and the fit at 375 px.
+- **What it checks.** The screen and its words, the title, the alert, that nothing of the error is on the page, the three links and that each one loads its page (the reload by keyboard and by click), a working tuner after the reload, no Content Security Policy violation and no console error but the crash itself, and the fit at 375 px. Since 0.7.2 also that the microphone's track has ended.
 - **What it cannot check on `localhost`.** The report to Sentry: only the live hosts report. Run against the live site it does send one, titled by the script's own error text. Resolve it afterwards.
 - **Only from the tuner's page.** The other pages have no Subscription running to throw in. The screen and its links do not depend on the page.
 - **Where.** The script was session scratch (`crash.ts` in the smoke folder), like the others (see "Checking the real page in headless Chrome, with and without a microphone").
@@ -572,7 +630,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 - **What was seen.** Every report has `ipAddress: null` and still carries a country, and sometimes a city: "US, New York" on the first reports, "US" with no city on a later one, "US, New York" again on one sent after "Prevent Storing of IP Addresses" was switched on for the project.
 - **What it means.** Sentry looks the location up from the address the report arrives from, then keeps the location and not the address. Neither the SDK's switches nor the project setting stops it.
-- **Why it matters.** It bears on what the page may claim. "Ad-free, ad-tracker-free" holds; a plain "tracker-free" or "we know nothing about you" would claim too much. See the note in the backlog.
+- **Why it matters.** It bears on what the page may claim. "Ad-free, ad-tracker-free" holds; a plain "tracker-free" or "we know nothing about you" would claim too much. It is one of the two reasons the title was left alone ("The title does not say 'ad-free' or 'tracker-free'").
 
 ### The SDK's privacy switches changed name, and they default to on (2026-11-24, Sentry)
 
