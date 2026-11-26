@@ -132,7 +132,7 @@ import {
   managedResources,
   update,
 } from './main'
-import { REFUSED } from './microphone'
+import { BUSY, MicrophoneFailure, REFUSED } from './microphone'
 import { DEFAULT_PREFERENCES } from './preferences'
 import { AppRoute, PAGE_HEADING_ID } from './route'
 import {
@@ -550,6 +550,64 @@ describe('waiting for the microphone', () => {
       expect(statusRegion).toBeEmpty(),
       ManagedResource.acquire(managedResources.microphone),
       expect(statusRegion).toBeEmpty(),
+    )
+  })
+})
+
+// Neither line may move the page when it appears or goes. So both are drawn
+// inside one block that is on the page from the first drawing and always
+// keeps its room: beside the On / Off button where the pedal is wide
+// enough, and under it on a phone (`powerRowView` in `src/view.ts`). The
+// view marks the block with a `data-tuner-messages` attribute for these
+// tests to find, since an empty block has no role, name or text.
+//
+// What a scene can show is that the block is always there, that both lines
+// are drawn inside it and not beside it, and that the view asked for the
+// classes that keep the room. That the pedal is then the same height with
+// and without a line was measured in headless Chrome, at 1280 and at 375
+// pixels wide. `within(parent, child)` narrows a locator to what is inside
+// another.
+describe('the room kept for a line by the On / Off button', () => {
+  const messages = selector('[data-tuner-messages]')
+
+  const failedModel: Model = modifyFields(offModel, {
+    tuner: () => TunerState.Failed({ failure: MicrophoneFailure.Busy() }),
+  })
+
+  test.each([
+    ['before the app is running', firstModel],
+    ['off', offModel],
+    ['starting', startingModel],
+    ['listening', listening()],
+    ['failed', failedModel],
+  ])('%s: the block is there, with its room', (_name, start) => {
+    scene(
+      { update, view },
+      given(start),
+      // Three lines of text on a phone, two beside the button from 640
+      // pixels up, where a line is longer.
+      expect(messages).toHaveClass('min-h-[60px]'),
+      expect(messages).toHaveClass('sm:min-h-[40px]'),
+      expect(within(messages, statusRegion)).toExist(),
+    )
+  })
+
+  test('the waiting line is drawn inside the block', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      click(powerButton),
+      timerReports,
+      expect(within(messages, statusRegion)).toHaveText(WAITING_LINE),
+      ManagedResource.acquire(managedResources.microphone),
+    )
+  })
+
+  test('the failure line is drawn inside the block', () => {
+    scene(
+      { update, view },
+      given(failedModel),
+      expect(within(messages, role('alert'))).toHaveText(BUSY),
     )
   })
 })
@@ -1359,6 +1417,51 @@ describe('controls', () => {
       expect(tuningPicker).toContainText('Bass - Standard'),
       expectAll(strings).toHaveCount(4),
       expect(nth(strings, 3)).toHaveText('G'),
+    )
+  })
+
+  // How tall the open list may be is the Listbox's business, and the view
+  // must stay out of it. The Listbox measures the list, opens it on the
+  // side of the button where it fits, and sets the room left as an inline
+  // `max-height`. A `max-h-...` class of our own makes the list measure
+  // short on that first pass: it then seems to fit under the button, stays
+  // there, and scrolls with room to spare above (FINDINGS.md, "A height
+  // class on the open list stopped it opening upwards"). So the list has no
+  // height class and no overflow class. What it does have is `scroll-cue`,
+  // the utility in `src/styles.css` that shows there is more to scroll to
+  // in a window too short for the whole list.
+  //
+  // A scene can only see that the view asked for the classes. Where the
+  // list opens, and what the cue looks like, were checked in headless
+  // Chrome. The scene ends by choosing a tuning, as the scene above does,
+  // because that closes the list: a scene may not end with a Command or a
+  // Mount left unanswered.
+  test('the open list is given no height of its own, and says when it scrolls', () => {
+    scene(
+      { update, view },
+      given(listening()),
+      click(tuningPicker),
+      Command.resolve(
+        Listbox.FocusItems,
+        Listbox.Message.CompletedFocusItems(),
+      ),
+      Mount.resolve(
+        Listbox.AnchorListbox,
+        Listbox.Message.CompletedAnchorListbox(),
+      ),
+      Mount.resolve(
+        Listbox.PortalListboxBackdrop,
+        Listbox.Message.CompletedPortalListboxBackdrop(),
+      ),
+      expect(role('listbox')).not.toHaveClass('max-h-64'),
+      expect(role('listbox')).not.toHaveClass('overflow-y-auto'),
+      expect(role('listbox')).toHaveClass('scroll-cue'),
+      click(role('option', { name: 'Guitar - Standard' })),
+      Command.resolveAllExact(
+        [Listbox.FocusButton, Listbox.Message.CompletedFocusButton()],
+        [SavePreferences, Message.SucceededSavePreferences()],
+      ),
+      Mount.expectEnded(Listbox.AnchorListbox, Listbox.PortalListboxBackdrop),
     )
   })
 

@@ -69,9 +69,11 @@
 //         tuningPickerView   the tuning list             (ui: Listbox)
 //         settingsMenuView   the three-dot menu          (ui: Popover)
 //           a4FieldView      the A4 number field         (ui: Input)
-//       powerButtonView      On / Off                    (ui: Button)
-//       startHintView        "Waiting for the microphone", on a slow start
-//       failureView          the error line
+//       powerRowView         the button, and the room kept beside it
+//         powerButtonView    On / Off                    (ui: Button)
+//         messagesView       the room for one line of words
+//           startHintView    "Waiting for the microphone", on a slow start
+//           failureView      the error line
 //       (inline)             the "OK Tuner 001" badge
 //
 // Conventions you will see throughout (FOLDKIT.md, "View" and "Code Style"):
@@ -566,9 +568,7 @@ const tunerView = (model: Model, h: HtmlBuilder<Message>): Html => {
       screenView(display, h),
       stringsView(tuning, model.a4, display, h),
       controlsView(model, tuning, display, h),
-      powerButtonView(display, h),
-      startHintView(display, h),
-      failureView(display, h),
+      powerRowView(display, h),
       // The model badge. `pointer-events-none` and `select-none` make it part
       // of the casing: it cannot be clicked or selected.
       h.div(
@@ -1066,10 +1066,13 @@ const tuningPickerView = (
       // assistive technology. The tests find the picker by this name.
       ariaLabel: 'Tuning',
       // Where the open list goes. The Listbox positions the panel against
-      // the button with Floating UI. `placement` puts it below the button
-      // with the left edges in line, `gap` is the space between them in
-      // pixels, and `padding` is how close to the edge of the window the
+      // the button with Floating UI. `placement` asks for it below the
+      // button with the left edges in line, `gap` is the space between them
+      // in pixels, and `padding` is how close to the edge of the window the
       // panel may come before it is flipped to the other side or shifted.
+      // The flip is what shows all eleven tunings in a window of ordinary
+      // height: under the button there is often too little room, and above
+      // it there is enough. See the note at `itemsAttributes` below.
       anchor: { placement: 'bottom-start', gap: 4, padding: 8 },
       // The options, and how to get from an option to the string that
       // identifies it. The items are whole `Tuning` records and the values
@@ -1144,14 +1147,27 @@ const tuningPickerView = (
       // list. The panel, at 20, stays above the backdrop. FINDINGS.md, "An
       // open list or menu hides behind the tuner body without a z-index".
       //
-      // `max-h-64` and `overflow-y-auto` do less than they appear to. The
-      // positioning code also sets `max-height` (to the room left in the
-      // window) and `overflow-y: auto` as inline styles on the panel, and an
-      // inline style beats a class. So the list can grow taller than
-      // `max-h-64` allows, and scrolls only when the window runs out.
+      // There is no height class and no overflow class, on purpose. The
+      // positioning code measures the list at its full height, opens it
+      // above the button when it does not fit below (the `padding` of
+      // `anchor` is the margin it keeps), and then sets `max-height` (the
+      // room left on the side it chose) and `overflow-y: auto` as inline
+      // styles on the panel. So the list scrolls only in a window too short
+      // to hold it on either side.
+      // NOTE: a `max-h-...` class here looks harmless, since the inline
+      // style overrides it, and is not. On the first measurement there is
+      // no inline style yet, so the class makes the list look short enough
+      // to fit below, and it stays below and scrolls with room to spare
+      // above. `max-h-64` did that until 0.7.2 (FINDINGS.md, "A height
+      // class on the open list stopped it opening upwards").
+      //
+      // `scroll-cue` is this project's own utility (src/styles.css). In
+      // that too-short window it draws a soft dark edge at the top or the
+      // bottom of the list while there are more tunings that way, which is
+      // the only sign of it where the system hides scrollbars.
       itemsAttributes: childAttributes([
         h.Class(
-          'z-20 max-h-64 w-(--button-width) overflow-y-auto rounded bg-oxford pt-1 pb-3 text-[15px] text-blue-100/90 shadow-lg shadow-oxford-950',
+          'scroll-cue z-20 w-(--button-width) rounded bg-oxford pt-1 pb-3 text-[15px] text-blue-100/90 shadow-lg shadow-oxford-950',
         ),
       ]),
       // `fixed inset-0` stretches the backdrop over the whole window.
@@ -1353,6 +1369,71 @@ const a4FieldView = (model: Model, h: HtmlBuilder<Message>): Html =>
     h,
   )
 
+// The foot of the pedal: the On / Off button, and the room where the tuner
+// says in words what it is waiting for or what went wrong.
+//
+// The room is always there, whether or not there is anything to say. That
+// is the point of this function. A line that took its room only when it
+// appeared made the pedal taller, by 52 pixels on a desktop and up to 92 on
+// a phone, and pushed everything under the tuner down and back up again
+// (FINDINGS.md, "A line that comes and goes must have its room kept").
+//
+// Where the room is depends on the width, because a wide pedal has spare
+// room and a narrow one has none:
+//
+//   - From 640 pixels up (`sm:`, Tailwind's first breakpoint) the button
+//     and the line share one row (`sm:flex-row`), the line to the right of
+//     the button and centred on it (`sm:items-center`). The row is as tall
+//     as two lines of text, which is the button's own height, so keeping
+//     the room costs the pedal nothing.
+//   - Below that the line goes under the button (`flex-col`), in a block
+//     three lines tall. A phone's pedal is that much taller, always.
+//
+// `pb-3` is for the badge, which sits in the pedal's bottom right corner,
+// out of the flow (`absolute`, in `tunerView`). With the pedal's own
+// padding it keeps the last line of text above the badge's lettering, so a
+// line may run the full width.
+const powerRowView = (display: Display, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [
+      h.Class(
+        'mt-5 flex flex-col gap-2 pb-3 sm:flex-row sm:items-center sm:gap-4',
+      ),
+    ],
+    [powerButtonView(display, h), messagesView(display, h)],
+  )
+
+// The room itself: a block that holds the waiting line and the failure
+// line, and is as tall with neither as with either.
+//
+// `min-h-[60px]` is three lines of `text-sm`, whose line is 20 pixels tall,
+// and `sm:min-h-[40px]` is two. Those are what the longest of the app's own
+// sentences needs (`BUSY` in src/microphone.ts) at 375 pixels and at 640.
+// Measured in headless Chrome. Two things can still outgrow the room, and
+// then the pedal grows as it used to: a long message from the browser
+// itself (an `Unexpected` failure shows it as it came), and the longest
+// sentence on a pedal narrower than a 375 pixel phone's.
+//
+// `sm:flex sm:flex-col sm:justify-center` centres the line in the block
+// beside the button. On a phone the line starts at the top of the block,
+// just under the button.
+//
+// `data-tuner-messages` is for the tests: an empty block has no role, name
+// or text to be found by.
+//
+// The two lines are never on the page together: one belongs to `Starting`
+// and the other to `Failed` (`toDisplay`).
+const messagesView = (display: Display, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [
+      h.DataAttribute('tuner-messages', ''),
+      h.Class(
+        'min-h-[60px] text-sm sm:flex sm:min-h-[40px] sm:flex-col sm:justify-center',
+      ),
+    ],
+    [startHintView(display, h), failureView(display, h)],
+  )
+
 // The On / Off button, built with `Button` from `@foldkit/ui`: the third
 // stateless helper.
 //
@@ -1406,9 +1487,13 @@ const powerButtonLook = (display: Display): string => {
   }
 }
 
+// The outer div is the thin bezel, as round the screen and the controls.
+// `max-w-fit` keeps it to the button's width where the row stacks, and
+// `shrink-0` keeps the row from squeezing it where the button and a line
+// sit side by side (`powerRowView`).
 const powerButtonView = (display: Display, h: HtmlBuilder<Message>): Html =>
   h.div(
-    [h.Class('mt-8 max-w-fit rounded-[7px] border border-blue-200/10')],
+    [h.Class('max-w-fit shrink-0 rounded-[7px] border border-blue-200/10')],
     [
       Button.view(
         {
@@ -1475,17 +1560,15 @@ const powerButtonView = (display: Display, h: HtmlBuilder<Message>): Html =>
 // change inside a live region it already knows about, and may say nothing
 // when a region arrives with its text already in it. An `alert` is the
 // exception browsers make. `h.empty` is dropped from the list of children,
-// so the div really is empty, and an empty div takes no room: nothing moves
-// until there is a line to show.
+// so the div really is empty. The room the line will need is kept by the
+// block round this div (`messagesView`), not by the div, and it is kept all
+// the time, so nothing moves when the line comes or goes.
 const startHintView = (display: Display, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Role('status')],
     [
       display.isStartingSlow
-        ? h.p(
-            [h.Class('mt-3 max-w-[75%] text-sm text-slate-950')],
-            [WAITING_FOR_MICROPHONE],
-          )
+        ? h.p([h.Class('text-slate-950')], [WAITING_FOR_MICROPHONE])
         : h.empty,
     ],
   )
@@ -1496,13 +1579,10 @@ const startHintView = (display: Display, h: HtmlBuilder<Message>): Html =>
 // reader announces its text as soon as it appears, interrupting what it was
 // saying. That suits a failure the person must act on, where the note above
 // is only `polite`. It works because the element is absent (`h.empty`) until
-// there is a failure and is then inserted with its text.
+// there is a failure and is then inserted with its text. Its room is kept
+// by `messagesView`, like the waiting line's.
 const failureView = (display: Display, h: HtmlBuilder<Message>): Html =>
   Option.match(display.maybeFailure, {
     onNone: () => h.empty,
-    onSome: reason =>
-      h.p(
-        [h.Role('alert'), h.Class('mt-3 max-w-[75%] text-sm text-red-950')],
-        [reason],
-      ),
+    onSome: reason => h.p([h.Role('alert'), h.Class('text-red-950')], [reason]),
   })
