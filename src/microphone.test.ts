@@ -24,6 +24,7 @@ import {
   UNSUPPORTED,
   acquireMicrophone,
   failureSentence,
+  hasEnded,
   microphoneFailure,
   releaseMicrophone,
 } from './microphone'
@@ -51,7 +52,7 @@ const failureOf = (
   })
 
 // An `Error` with a chosen `name`, as a browser throws. The name is what
-// says which problem it was: `NotAllowedError`, `NotReadableError`.
+// says which problem it was: `NotAllowedError`, `AbortError`.
 const named = (name: string, text: string): Error =>
   Object.assign(new Error(text), { name })
 
@@ -78,10 +79,10 @@ describe('microphoneFailure', () => {
 
   test('another error keeps its name and message', () => {
     expect(
-      microphoneFailure(named('NotReadableError', 'The device is busy')),
+      microphoneFailure(named('AbortError', 'The device is busy')),
     ).toEqual(
       MicrophoneFailure.Unexpected({
-        name: 'NotReadableError',
+        name: 'AbortError',
         detail: 'The device is busy',
       }),
     )
@@ -102,12 +103,12 @@ describe('microphoneFailure', () => {
   test('an error-like object that is not an Error gives its name and message', () => {
     expect(
       microphoneFailure({
-        name: 'NotFoundError',
+        name: 'OverconstrainedError',
         message: 'Requested device not found',
       }),
     ).toEqual(
       MicrophoneFailure.Unexpected({
-        name: 'NotFoundError',
+        name: 'OverconstrainedError',
         detail: 'Requested device not found',
       }),
     )
@@ -117,6 +118,80 @@ describe('microphoneFailure', () => {
 // What the person is told, for each kind of failure. The view puts this
 // sentence in the alert. The wording of the two fixed sentences is pinned
 // here, so `scene.test.ts` can compare against the constant.
+// Two failures that are nobody's bug get kinds of their own, so the app can
+// say something plain and need not report them: no microphone at all, and a
+// microphone the browser could not start, which usually means another
+// program has it.
+describe('a missing or busy microphone', () => {
+  test('no microphone is NotFound', () => {
+    expect(
+      microphoneFailure(
+        new DOMException('Requested device not found', 'NotFoundError'),
+      ),
+    ).toEqual(MicrophoneFailure.NotFound())
+  })
+
+  test('a microphone that cannot be started is Busy', () => {
+    expect(
+      microphoneFailure(
+        new DOMException('Could not start audio source', 'NotReadableError'),
+      ),
+    ).toEqual(MicrophoneFailure.Busy())
+  })
+
+  // The browser's own words ("Requested device not found") are replaced by
+  // a sentence that says what to do.
+  test.each([
+    ['NotFound', MicrophoneFailure.NotFound(), /No microphone was found/],
+    ['Busy', MicrophoneFailure.Busy(), /in use by another/],
+    ['Lost', MicrophoneFailure.Lost(), /microphone was disconnected/],
+  ])('%s has a plain sentence', (_, failure, pattern) => {
+    expect(failureSentence(failure)).toMatch(pattern)
+  })
+})
+
+// Whether an open microphone has stopped delivering sound. A track ends when
+// its device is unplugged or when the person takes the permission back, and
+// from then on the analyser reads silence for ever. The handle is faked:
+// only the tracks' `readyState` matters.
+describe('hasEnded', () => {
+  // The handle comes from the real `acquireMicrophone`, with the browser's
+  // two entry points replaced by stand-ins, as in the tests further down.
+  // Only the tracks' `readyState` matters here.
+  const handleWith = (states: ReadonlyArray<string>) => {
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        getUserMedia: () =>
+          Promise.resolve({
+            getTracks: () => states.map(readyState => ({ readyState })),
+          }),
+      },
+    })
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        state = 'running'
+        createAnalyser = () => ({})
+        createMediaStreamSource = () => ({ connect: vi.fn() })
+      },
+    )
+
+    return Effect.runPromise(acquireMicrophone)
+  }
+
+  test('a live track has not ended', async () => {
+    expect(hasEnded(await handleWith(['live']))).toBe(false)
+  })
+
+  test('an ended track has', async () => {
+    expect(hasEnded(await handleWith(['ended']))).toBe(true)
+  })
+
+  test('a stream with no tracks left has ended', async () => {
+    expect(hasEnded(await handleWith([]))).toBe(true)
+  })
+})
+
 describe('failureSentence', () => {
   test('a refusal says how to allow the microphone', () => {
     expect(failureSentence(MicrophoneFailure.Refused())).toBe(REFUSED)
@@ -134,7 +209,7 @@ describe('failureSentence', () => {
     expect(
       failureSentence(
         MicrophoneFailure.Unexpected({
-          name: 'NotReadableError',
+          name: 'AbortError',
           detail: 'The device is busy',
         }),
       ),

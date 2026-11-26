@@ -98,3 +98,21 @@ describe('vercel.json headers', () => {
     expect(headers['Permissions-Policy']).toContain('microphone=(self)')
   })
 })
+
+// Each page is written as a folder holding an `index.html`, and Vercel also
+// answers at that file's own address. The app has no route for a path that
+// ends in `index.html`, so it showed the page and then replaced it with
+// "Page not found". The redirects send those addresses to the real ones
+// before any file is served.
+describe('vercel.json redirects', () => {
+  test('an address ending in index.html goes to the page itself, for good', () => {
+    expect(vercelConfig.redirects).toEqual([
+      { source: '/index.html', destination: '/', permanent: true },
+      {
+        source: '/:path+/index.html',
+        destination: '/:path+',
+        permanent: true,
+      },
+    ])
+  })
+})

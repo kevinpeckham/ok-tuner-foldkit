@@ -20,7 +20,9 @@
 //
 //   2. A failure the app caught and handled, but which means something is
 //      broken. Today there is one: a microphone that fails to open for a
-//      reason other than the person's refusal or an unsupported browser.
+//      reason the app does not recognise. (A refusal, an unsupported
+//      browser, and a missing, busy or unplugged microphone are the
+//      person's own situation, and are not reported.)
 //      `update` returns the `ReportProblem` Command (`src/main.ts`), and
 //      that Command calls `reportMicrophoneProblem`. It is a Command, and
 //      not a call from where the error is caught, so that the report shows

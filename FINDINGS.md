@@ -8,6 +8,20 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### A missing, busy or lost microphone is not a fault (2026-11-25, microphone)
+
+- **Why.** The alert used to show the browser's own words ("Requested device not found"), and the failure went to Sentry as a fault. No microphone, a microphone another program is using, and a microphone unplugged mid-session are the person's situation: there is nothing in a report for us to fix. Each is now a kind of its own (`NotFound`, `Busy`, `Lost`) with a sentence that says what to do, and none is reported. Kevin left the reporting question open in the backlog; this was my call.
+- **What it changes for testing.** The usual way to send a Sentry test report was a browser with no microphone, which is now `NotFound` and sends nothing. To send one, make `getUserMedia` reject with an error the app does not know, for example a `DOMException` named `AbortError`, from an init script in the browser.
+- **Where.** `MicrophoneFailure`, `microphoneFailure` and `failureSentence` in `src/microphone.ts`; `failWith` in `src/main.ts`.
+
+### A lost microphone is noticed by the readings, not by an event (2026-11-25, microphone)
+
+- **Symptom.** With the microphone unplugged, or its permission taken back, the tuner stayed switched on and silent: the analyser goes on answering, with silence.
+- **Fix.** The readings Subscription already runs twenty times a second. Before each reading it asks whether every track of the stream has ended (`hasEnded`), and if so sends `LostMicrophone` in place of a reading. `update` moves the tuner to `Failed` with the kind `Lost`, and `Failed` does not require the microphone, so the runtime closes what is left.
+- **Why not the track's `ended` event.** It would need a listener added when the microphone opens and removed when it closes, and a way to turn it into a Message. The poll costs nothing new and cannot leak.
+- **Checked.** In headless Chrome, stopping the stream's tracks from outside the app switched the tuner off with the sentence within half a second, and switching it on again worked.
+- **Where.** `hasEnded` in `src/microphone.ts`; `measureInput` and `LostMicrophone` in `src/main.ts`.
+
 ### The site is public, and only at one address (2026-11-25, going public)
 
 - **What changed.** The `noindex` tag left the pages, each page gained a canonical address, a description and Open Graph tags, and `robots.txt` and `sitemap.xml` were added.
@@ -127,6 +141,22 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **Why.** The design said both "the note turns green in tune" and "colours match the original". In the live original the green class is overridden and never shows. Kevin looked at the result and kept it as it is.
 
 ## Foldkit and Effect
+
+### The tuner could not hear a five-string bass's low B (2026-11-25, pitch)
+
+- **Symptom.** The list offers "Bass - 5-string", whose lowest string is 30.87 Hz. The detector searched from 40 Hz, so that string read as nothing at all. Listed in the backlog as untested; a test confirmed it.
+- **Fix.** The floor is 28 Hz. The window is 4096 samples, which at 48 kHz holds 2.6 periods of that B, above the two the method needs.
+- **What it costs.** The search covers about 1,700 lags where it covered 1,200, so each reading does about 40% more arithmetic.
+- **The guard.** A test now runs every string of every tuning in the list through the detector at the app's real window length, so a tuning cannot be added whose strings it cannot hear.
+- **Where.** `detectPitch` in `src/pitch.ts`; `src/pitch.test.ts`.
+
+### Closing a child component from the parent (2026-11-25, Foldkit)
+
+- **Symptom.** With the settings menu open, going back to another page and forward again showed the menu open on a tuner that was off, and the first press of On / Off only closed it.
+- **Fix.** Leaving the tuner's page closes the menu, through the Popover's own `close`, folded with `Update.foldChildStep` and run after the route change with `Update.combine`. Its `Closed` OutMessage puts the A4 text back, as when the person closes it.
+- **Not by replacing its Model.** Setting the menu's Model back to a fresh one would skip whatever the component does on closing.
+- **What closing returns.** One Command, `FocusButton`. An older test lists `UnlockScroll` and `RestoreInert` beside it with `resolveAll`, which passes although they are never returned: `resolveAllExact` showed it.
+- **Where.** `foldA4PopoverClose` and `ChangedUrl` in `src/main.ts`.
 
 ### The app's root element is a `<div>`, so the footer can be a landmark (2026-11-25, footer)
 
@@ -460,6 +490,12 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **What happens.** `.oxlintrc.json`, `.oxlintrc.effect.json` and `tsconfig.json` have `//` comments. oxlint 1.85.0, `tsc` 7 and oxfmt all accept them, and the lint rules were probed afterwards and still fire. A tool that reads these files as strict JSON would not; an editor without the oxc extension may underline them.
 
 ## Vercel and domains
+
+### An address ending in `index.html` is redirected (2026-11-25, Vercel)
+
+- **Symptom.** Each page is a folder holding an `index.html`, and Vercel also answered at that file's own address. The app has no route for such a path, so `/index.html` showed the tuner and then replaced it with "Page not found".
+- **Fix.** Two permanent redirects in `vercel.json`: `/index.html` to `/`, and any `…/index.html` to its folder. A redirect is applied before any file is served.
+- **Where.** `redirects` in `vercel.json`; `src/site.test.ts`.
 
 ### The Content Security Policy: what the app needed, and how it was tried (2026-11-25, going public)
 

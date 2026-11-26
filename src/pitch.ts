@@ -258,9 +258,14 @@ const peakLags = (
 //   1. Turn the range of frequencies into a range of lags. A lag is a period
 //      counted in samples, so lag = sampleRate / frequency: the highest
 //      frequency wanted gives the smallest lag, and the lowest gives the
-//      largest. At 48 kHz the defaults (40 Hz to 1500 Hz) give lags 32 to
-//      1200. `maxLag` is also capped by the length of the buffer. The
-//      default `minHz` of 40 sits just under a bass guitar's low E (41.2 Hz).
+//      largest. At 48 kHz the defaults (28 Hz to 1500 Hz) give lags 32 to
+//      1714. `maxLag` is also capped by the length of the buffer. The
+//      default `minHz` of 28 sits under the lowest string in the app's
+//      list, the low B of a five-string bass (30.87 Hz), with room for a
+//      string that is flat. It was 40 until 2026-11-25, which sat just
+//      under a four-string bass's low E and could not hear that B at all
+//      (FINDINGS.md, "The tuner could not hear a five-string bass's low
+//      B").
 //
 //   2. Work out the NSDF over those lags (`normalizedSquareDifference`).
 //
@@ -305,7 +310,7 @@ const peakLags = (
 export const detectPitch = (
   samples: Float32Array,
   sampleRate: number,
-  { minHz = 40, maxHz = 1500, minClarity = 0.85 }: DetectOptions = {},
+  { minHz = 28, maxHz = 1500, minClarity = 0.85 }: DetectOptions = {},
 ): Option.Option<Pitch> => {
   // Step 1: the range of lags to search.
   const maxLag = Math.min(samples.length - 2, Math.floor(sampleRate / minHz))

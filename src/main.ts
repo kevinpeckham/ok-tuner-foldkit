@@ -109,6 +109,7 @@ import {
   type MicrophoneService,
   WINDOW,
   acquireMicrophone,
+  hasEnded,
   microphoneFailure,
   readMeasurement,
   releaseMicrophone,
@@ -322,6 +323,9 @@ export const Message = defineMessageUnion({
   FailedAcquireMicrophone: { failure: MicrophoneFailure },
   // The microphone was closed again.
   ReleasedMicrophone: {},
+  // From the subscription: the microphone was open and has gone away. It
+  // was unplugged, or the permission was taken back.
+  LostMicrophone: {},
   // From the subscription (see SUBSCRIPTION), twenty times a second while
   // listening: how loud the input is, and its pitch if one was found.
   MeasuredInput: { level: Schema.Number, maybePitch: Schema.Option(Pitch) },
@@ -715,6 +719,12 @@ const failWith = (
   commands: MicrophoneFailure.match(failure, {
     Refused: () => [],
     Unsupported: () => [],
+    // No microphone, a microphone another program has, and a microphone
+    // that was unplugged: the person's own situation, with a sentence that
+    // says what to do, and nothing for us to fix.
+    NotFound: () => [],
+    Busy: () => [],
+    Lost: () => [],
     Unexpected: ({ name, detail }) => [ReportProblem({ name, detail })],
   }),
 })
@@ -814,6 +824,20 @@ const foldA4Popover = Update.foldChild({
 // the app's set of services from this type and holds the subscription to the
 // same set. Leave the argument out and src/entry.ts stops compiling, because
 // the subscription below does need the Microphone.
+// The same fold for the Popover's `close`, a function that takes only the
+// child's Model. `Update.foldChildStep` is the variant of `foldChild` for
+// that case, and what it returns is a step: a function from the parent
+// Model to the usual `{ model, commands }`. The ChangedUrl handler uses it
+// to close the settings menu when the person leaves the tuner's page.
+const foldA4PopoverClose = Update.foldChildStep({
+  update: Popover.close,
+  read: (model: Model) => Option.some(model.a4Popover),
+  write: (model, nextA4Popover) =>
+    modifyFields(model, { a4Popover: () => nextA4Popover }),
+  toParentMessage: message => Message.GotA4PopoverMessage({ message }),
+  foldOutMessage: foldA4PopoverOutMessage,
+})
+
 type UpdateReturn = Update.Return<Model, Message, MicrophoneService>
 
 // The text in the A4 field changed.
@@ -950,6 +974,20 @@ export const update = (model: Model, message: Message) =>
     // resource must name a Message for this, and it records the fact.
     ReleasedMicrophone: () => ({ model }),
 
+    // The microphone went away while the tuner was listening. Without this
+    // the tuner would stay switched on and hear nothing. It moves to Failed
+    // with the reason, and Failed is a state that does not require the
+    // microphone, so the runtime closes what is left of it. In any other
+    // state there is nothing to lose, and the Message changes nothing.
+    LostMicrophone: () =>
+      TunerState.match(model.tuner, {
+        Booting: () => ({ model }),
+        Off: () => ({ model }),
+        Starting: () => ({ model }),
+        Listening: () => failWith(model, MicrophoneFailure.Lost()),
+        Failed: () => ({ model }),
+      }),
+
     // A reading from the subscription. It matters only while Listening,
     // where `Option.match` sends it one of two ways: no pitch was found, or
     // one was. In every other state the tuner is returned as it was.
@@ -1046,14 +1084,26 @@ export const update = (model: Model, message: Message) =>
     // address change that stays on the same page, such as a fragment added
     // to the address, returns no Command. The two routes are compared by
     // tag, which is enough to tell one page from another.
+    //
+    // Leaving the tuner's page also closes the settings menu, if it is
+    // open. `Update.combine` runs a list of steps one after another, each
+    // taking the Model the last one returned, and gathers their Commands.
+    // The second step is the Popover's own `close`, folded like any other
+    // child update (`foldA4PopoverClose` above): the menu ends the way it
+    // does when the person closes it, and its `Closed` OutMessage puts the
+    // A4 text back. On a closed menu the step does nothing.
     ChangedUrl: ({ url }) => {
       const nextRoute = urlToAppRoute(url)
       const isNewPage = nextRoute._tag !== model.route._tag
+      const isLeavingTuner = nextRoute._tag !== 'Tuner'
 
-      return {
-        model: enterRoute(model, nextRoute),
-        commands: isNewPage ? [FocusPageHeading()] : [],
-      }
+      return Update.combine(model, [
+        current => ({
+          model: enterRoute(current, nextRoute),
+          commands: isNewPage ? [FocusPageHeading()] : [],
+        }),
+        isLeavingTuner ? foldA4PopoverClose : current => ({ model: current }),
+      ])
     },
 
     // The three routing Commands ran. Nothing follows from that.
@@ -1174,7 +1224,12 @@ export const managedResources = ManagedResource.make<Model, Message>()(
 const measureInput = (buffer: Float32Array<ArrayBuffer>) =>
   Stream.fromEffect(Microphone.get).pipe(
     Stream.map(microphone =>
-      Message.MeasuredInput(readMeasurement(microphone, buffer)),
+      // Before reading, ask whether the microphone is still there
+      // (`hasEnded` in src/microphone.ts). If it is not, the Message says
+      // so and no reading is taken.
+      hasEnded(microphone)
+        ? Message.LostMicrophone()
+        : Message.MeasuredInput(readMeasurement(microphone, buffer)),
     ),
     Stream.catchTag('ResourceNotAvailable', () => Stream.empty),
   )

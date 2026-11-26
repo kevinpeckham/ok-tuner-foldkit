@@ -6,9 +6,7 @@ Items are grouped by kind, not ranked.
 
 ## Microphone and listening
 
-- **Microphone lost mid-session.** If the microphone is unplugged or permission is revoked while the tuner is on, the tuner stays on and silent. Detect it (the track's `ended` event, the permission's `change` event) and show a clear notice with what to do next.
 - **Waiting for permission.** While the browser's permission prompt is open the button says "Starting…" and nothing else. Say that the browser is waiting for microphone permission when that is the case, and consider a way to cancel.
-- **A missing or busy microphone.** The alert shows the browser's own words ("Requested device not found") and the failure is reported to Sentry as a fault. Once Sentry shows how often each happens, give `NotFoundError` and `NotReadableError` their own kinds and plain sentences, and decide whether to keep reporting them.
 - **Start listening when the pointer enters the page.** Agreed during design, to follow the basics.
 - **Pitch detection off the main thread.** `detectPitch` runs on the main thread every 50 ms. Weigh an `AudioWorklet` or a Web Worker: the gain is a steadier needle on slow phones, the cost is a second build entry and message passing. Measure on a slow phone before deciding.
 - **Power button while starting.** It keeps the pointer cursor and hover colour although it is disabled.
@@ -26,7 +24,6 @@ Items are grouped by kind, not ranked.
 ## Model and code
 
 - **Mandolin and banjo tunings,** added to the nine there are.
-- **The five-string bass's low B is below what the detector hears.** `bass-5` starts at 30.9 Hz and `detectPitch` searches from 40 Hz. What the tuner shows for that string is untested. The original has the same range.
 - **"+5 cents · sharp".** The word comes from the unrounded needle and the number is rounded, so a needle at 5.4 reads "+5 cents · sharp" while 5 reads "+5 cents · in tune". Read from the code, not seen.
 - **String chips are keyed by MIDI note.** Unique in the nine tunings there are; a tuning with two strings on one note (a mandolin's paired strings, if listed singly) would give duplicate keys.
 - **`max-h-64` and `overflow-y-auto` on the tuning list do nothing.** The Listbox sets both inline. Remove the classes, or size the list the way the Listbox allows.
@@ -62,10 +59,8 @@ Items are grouped by kind, not ranked.
 
 Found by the review of the routing change on 2026-11-25, and left as they were.
 
-- **The settings menu survives leaving the page.** Open it, press the browser's back button to another page and come forward again: the tuner is off but the menu is open, and the first press of On / Off only closes it. Close the menu and reset the A4 text in `enterRoute`.
 - **With the tuning list open, the first click on the how-to link only closes the list.** It is the Listbox's outside-click behaviour.
 - **Leaving while the browser is still asking for the microphone.** If permission is then granted, the microphone opens and closes at once, and the browser's indicator may blink on a page with no tuner. Coming back and pressing On / Off during that time shows "starting" without asking again until the first request settles.
-- **`/index.html` and `/how-to/index.html` show their page, then "Page not found".** Vercel serves the file at that address, and the app then finds it has no route for the path and replaces the page. Add the paths to the routers, or redirect them.
 - **The script is downloaded again after every deploy,** because its name carries a build id that is random per build. A fixed build id per commit, if Foldkit's plugin takes one, would let an unchanged script stay cached.
 - **The title is tested as `pageTitle`, not as what `view` returns.** A `view` that ignored `pageTitle` would pass every test.
 - **No automated test clicks through.** Nothing covers the `routing` option in `entry.ts` or what the two navigation Commands do when run. The check is by hand in headless Chrome.

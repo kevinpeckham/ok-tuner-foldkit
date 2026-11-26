@@ -75,7 +75,7 @@ The live site counts page views with [Vercel Web Analytics](https://vercel.com/d
 Errors go to [Sentry](https://sentry.io), and nothing else goes there:
 
 - A crash (through Foldkit's `crash.report` hook) and any uncaught error.
-- A microphone that fails to open for a reason other than a refused permission or an unsupported browser. `update` returns a `ReportProblem` Command for it.
+- A microphone that fails to open for a reason the app does not know. `update` returns a `ReportProblem` Command for it. A refused permission, an unsupported browser, no microphone, a microphone in use elsewhere, and a microphone unplugged mid-session are not reported: each gets a plain sentence on the page.
 
 A visit where nothing goes wrong sends Sentry nothing. There is no session tracking, tracing or replay, no cookies or user identifiers, and the SDK is told not to record the IP address. Refusing the microphone and blocking site storage are choices, not errors, and are not reported.
 

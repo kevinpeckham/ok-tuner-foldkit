@@ -69,14 +69,27 @@ export const WINDOW = 4096
 export const REFUSED =
   'Microphone access was refused. Allow it in the browser to tune.'
 export const UNSUPPORTED = 'This browser cannot open the microphone.'
+// The sentences for the three failures that are about the microphone itself
+// and not about the app. Each says what to do next.
+export const NOT_FOUND =
+  'No microphone was found. Connect one, then switch the tuner on again.'
+export const BUSY =
+  'The microphone could not be started. It may be in use by another app. Close that app, then switch the tuner on again.'
+export const LOST =
+  'The microphone was disconnected. Reconnect it, then switch the tuner on again.'
 const UNEXPLAINED = 'The microphone could not be opened.'
 
 // `NotAllowedError` is the `name` of the error `getUserMedia` rejects with
-// when permission for the microphone is denied. It is the one browser error
-// this file singles out, because a refusal is the person's own choice and
-// not a fault. UNKNOWN_ERROR_NAME stands in when a thrown value has no
+// when permission for the microphone is denied. A refusal is the person's
+// own choice and not a fault, so it gets a kind of its own, as do the two
+// errors named below it. UNKNOWN_ERROR_NAME stands in when a thrown value has no
 // usable `name`.
 const REFUSED_ERROR_NAME = 'NotAllowedError'
+// The names the browser gives two more errors that are no fault of the
+// app: there is no microphone at all, and there is one that could not be
+// started, which most often means another program is using it.
+const NOT_FOUND_ERROR_NAME = 'NotFoundError'
+const BUSY_ERROR_NAME = 'NotReadableError'
 const UNKNOWN_ERROR_NAME = 'Unknown'
 
 // What is asked of `getUserMedia`.
@@ -168,11 +181,21 @@ export type MicrophoneService = ManagedResource.ServiceOf<typeof Microphone>
 // where it is caught".
 //   - `Refused`: permission for the microphone was denied.
 //   - `Unsupported`: this browser has no `getUserMedia`.
+//   - `NotFound`: there is no microphone to open.
+//   - `Busy`: the microphone could not be started, usually because another
+//     program has it.
+//   - `Lost`: the microphone was open and then went away: it was unplugged,
+//     or the permission was taken back. This one does not come from opening
+//     the microphone. `update` sets it when the readings report the loss
+//     (`hasEnded` below, and LostMicrophone in src/main.ts).
 //   - `Unexpected`: anything else. `name` and `detail` are the thrown
 //     error's `name` and `message`, kept as text.
 export const MicrophoneFailure = defineTaggedUnion({
   Refused: {},
   Unsupported: {},
+  NotFound: {},
+  Busy: {},
+  Lost: {},
   Unexpected: { name: Schema.String, detail: Schema.String },
 })
 // The same name is declared twice on purpose. The `const` above is the
@@ -243,6 +266,10 @@ export const microphoneFailure = (error: unknown): MicrophoneFailure => {
     return error.failure
   } else if (nameOf(error) === REFUSED_ERROR_NAME) {
     return MicrophoneFailure.Refused()
+  } else if (nameOf(error) === NOT_FOUND_ERROR_NAME) {
+    return MicrophoneFailure.NotFound()
+  } else if (nameOf(error) === BUSY_ERROR_NAME) {
+    return MicrophoneFailure.Busy()
   } else {
     return MicrophoneFailure.Unexpected({
       name: nameOf(error),
@@ -262,6 +289,9 @@ export const failureSentence = (failure: MicrophoneFailure): string =>
   MicrophoneFailure.match(failure, {
     Refused: () => REFUSED,
     Unsupported: () => UNSUPPORTED,
+    NotFound: () => NOT_FOUND,
+    Busy: () => BUSY,
+    Lost: () => LOST,
     Unexpected: ({ detail }) =>
       String.isNonEmpty(detail) ? detail : UNEXPLAINED,
   })
@@ -448,6 +478,19 @@ export const releaseMicrophone = ({
   Effect.andThen(stopTracks(stream), closeContext(context))
 
 // READ
+
+// Whether an open microphone has stopped delivering sound. A track's
+// `readyState` turns to `'ended'` when its device is unplugged, and when the
+// person takes the microphone permission back in the browser. Nothing else
+// in the handle changes: the analyser goes on answering, with silence, so
+// without this check the tuner would sit switched on and deaf.
+//
+// The readings Subscription in src/main.ts asks this before every reading,
+// twenty times a second, which is prompt enough and needs no event listener
+// to add and remove. A stream with no tracks at all counts as ended too.
+/** True once every track of the microphone's stream has ended. */
+export const hasEnded = ({ stream }: MicrophoneHandle): boolean =>
+  stream.getTracks().every(track => track.readyState === 'ended')
 
 // Called on every tick by the `readings` Subscription in `main.ts`, with the
 // handle from `Microphone.get` and one buffer that the stream creates once
