@@ -28,7 +28,7 @@ The source is commented for someone learning Foldkit: each file opens with what 
 2. `src/main.ts`: the Model, the Messages, `update`, Commands, the managed resource and the subscription. Most of Foldkit is here.
 3. `src/route.ts`: routing, in one short file. Read it with the ROUTING part of the header of `main.ts`.
 4. `src/view.ts`, then `src/page/`: how the Model becomes the page, and how the page sends Messages.
-5. `src/story.test.ts` and `src/scene.test.ts`: how `update` and the view are tested.
+5. `src/story.test.ts` and `src/scene.test.ts`: how `update` and the view are tested. Then `src/app.runtime.test.ts`: the whole app started in a test, for what only a running runtime does (a link followed, the microphone opened and read).
 6. `src/microphone.ts`, `src/pitch.ts`, `src/tuning.ts`, `src/preferences.ts`, `src/sentry.ts`: the parts Foldkit calls into.
 7. `src/crash.ts`: what Foldkit does when the app crashes, and what still works on a page whose runtime has stopped. `src/crash.runtime.test.ts` shows it with a runtime that really crashes.
 8. `vite.config.ts`, `.env.schema`: the build.

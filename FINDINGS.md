@@ -355,6 +355,61 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Testing
 
+### A click that opens a component is three steps in a Scene, and its closing a fourth (2026-11-26, tests)
+
+- **What happens.** `click` on the tuning picker in a Scene is not enough to use the list. The Listbox's update returns a Command (`FocusItems`), and the open list is drawn with two Mounts (`AnchorListbox` on the panel, `PortalListboxBackdrop` on the backdrop). The next interaction throws while any of the three is pending.
+- **The steps.** `Command.resolve(Listbox.FocusItems, Listbox.Message.CompletedFocusItems())`, then `Mount.resolve` for each Mount with the Listbox's own Message. They may come in any order. The settings menu is the same without the Command: a Popover that is not modal returns none when it opens, and a modal one would add `LockScroll` and `InertOthers`.
+- **Closing needs a step too.** When the list or the menu closes, its two Mounts leave the page, and the scene fails at its end ("Mounts that ended without being acknowledged") unless `Mount.expectEnded(...)` names them, even though both were resolved earlier.
+- **Choosing returns two Commands.** With the list open, a choice returns the Listbox's `FocusButton` and the app's `SavePreferences`. With it closed, as two older Story tests have it, only the save.
+- **Where it was read.** `repos/foldkit/packages/ui/src/listbox/single.test.ts` ("still opens from the button and closes on Escape"), and `expectEndedMountsStep` in `repos/foldkit/packages/foldkit/src/test/scene.ts`.
+- **Where.** OPENING BY A CLICK in `src/scene.test.ts`; "choosing from the open list" in `src/story.test.ts`.
+
+### The real app runs in happy-dom, with a working address bar and no microphone (2026-11-26, tests)
+
+- **What works.** A runtime started on the real app with routing cancels a click on a link, `history.pushState` moves `window.location`, the page, the title and the focus follow, and `history.back()` and `history.forward()` fire `popstate`. `window.location.assign` can be replaced with `vi.spyOn`, which is how a link to another site is tested without happy-dom going to fetch it.
+- **What does not exist.** `navigator.mediaDevices` and `AudioContext`. Left alone, the tuner in happy-dom says the browser cannot open the microphone. The test replaces both globals with a stand-in, as `src/microphone.test.ts` does, and the runtime then really opens it, reads it every 50 ms and closes it.
+- **Why a runtime and not a unit test for the readings.** `measureInput` asks for the microphone with `Microphone.get`, and the service behind it is a field Foldkit marks internal (`_tag` in `repos/foldkit/packages/foldkit/src/managedResource/managedResource.ts`). Only a runtime supplies it. Foldkit tests its own managed resources the same way (`managedResourceLifecycle.test.ts`).
+- **Three traps.** The first drawing of the whole tuner takes longer than one frame in happy-dom, and the runtime prints a warning with the whole Model in it: `slow: false` in `makeApplication` silences it. A Message is handled before the page is drawn again, so the stand-in may already be closed while the button still reads as on: wait for the page, not only for the spy. And the address outlives a test: put it back with `history.replaceState` afterwards.
+- **Waiting.** `vi.waitFor(expectation, { timeout, interval })` tries an expectation until it holds and fails with the last error, which is shorter than a loop written by hand. The two checks that readings have stopped are the only fixed waits, 150 ms each.
+- **What it leaves to a browser.** `src/entry.ts` itself and `Runtime.hydrate` over a prerendered page (in the backlog), layout, and a real microphone.
+- **Where.** `src/app.runtime.test.ts`. Five tests take about 0.9 seconds.
+
+### The "no IP address" mark is inside the event, and only the transport sees it (2026-11-26, Sentry)
+
+- **What happens.** With `dataCollection.userInfo: false` the browser client puts `settings: { infer_ip: 'never' }` in its SDK metadata (`BrowserClient` in `@sentry/browser`'s `client.js`). For an error report it reaches the wire inside the event, at `sdk.settings.infer_ip`. The envelope's header has an `sdk` field too, with the name and version only.
+- **Why `beforeSend` cannot check it.** The SDK merges the metadata into the event while it builds the envelope (`createEventEnvelope` in `@sentry/core`), which is after `beforeSend` has run. The event the hook is handed has `sdk.integrations` and nothing else. An event object kept by the hook does show the mark once `Sentry.flush()` has returned, because the SDK writes to the same object: an assertion there would pass, on a side effect and not on what was sent.
+- **How it is read.** From the envelope the recording transport keeps: the first item's payload. The SDK types a payload as any of the things an envelope can carry, and the lint allows no type assertion, so a small helper follows a path of keys through plain data with `Predicate.hasProperty`.
+- **Checked the hard way.** With `userInfo: true` the mark reads `'auto'` and the test fails.
+- **Where.** "what is put on the wire" in `src/sentry.test.ts`.
+
+### An export of an ES module cannot be replaced by a spy, but the SDK's scope can (2026-11-26, Sentry)
+
+- **Symptom.** `vi.spyOn(Sentry, 'captureException')` throws: `Cannot spy on export "captureException". Module namespace is not configurable in ESM.`
+- **What to do.** `Sentry.captureException` calls `getCurrentScope().captureException(...)`, and the scope is an ordinary object: `vi.spyOn(Sentry.getCurrentScope(), 'captureException')` works. With an implementation that throws, the real `reportMicrophoneProblem` throws, which is what the test of `ReportProblem`'s own catch-all needed. The scope outlives `Sentry.close()`, so `vi.restoreAllMocks()` runs after each test.
+- **Guard against the SDK changing.** The test first asserts that `reportMicrophoneProblem` does throw. If a later SDK stopped going through the scope, it would fail there and not pass with nothing thrown.
+- **What was tried first.** A stack parser that throws, passed as an option. The report did not throw.
+- **Where.** "completes when the report itself throws" in `src/sentry.test.ts`.
+
+### The blocked-storage test for Sentry ran with reporting switched off (2026-11-26, Sentry)
+
+- **What was known.** The test passes with or without the `try` in `initSentry`, because this SDK version does not read site storage when it starts with our options. (The only code in it that does is the linked-traces part of browser tracing, which is not installed.)
+- **What was not.** It also ran on `localhost` with no `enabled: true`, and an SDK that is switched off sets up no integration at all. So it would have passed even with an SDK that did read storage.
+- **What was done.** The test now starts the SDK enabled, and still cannot fail today: its comment says so. A second test stands in for a later SDK: an integration whose `setup` reads `sessionStorage`. With storage blocked that makes `Sentry.init` throw, and the test fails when the `try` is removed.
+- **Where.** The two "blocked storage" tests in `src/sentry.test.ts`.
+
+### A test cannot hand `view` a builder, so Foldkit's server renderer calls it (2026-11-26, tests)
+
+- **What happens.** `view(model, h)` wants an `HtmlBuilder<Message>`. The one builder Foldkit exports, `inertHtml`, is an `HtmlBuilder<never>`: it is for markup with no handlers, and the compiler refuses it for the tuner's view. (The crash view takes it, because a crash view sends no Message.)
+- **What to do.** `Server.renderToString` calls the real `view` with a builder of its own, and what it returns carries the `title` and `canonical` of the Document the view gave back, unchanged (`repos/foldkit/packages/foldkit/src/experimental/server/server.ts`). `renderApplication` in `src/entry.server.ts` wraps it.
+- **It was already covered.** `src/entry.server.test.ts` reads the title of all five pages and the canonical address of four out of the finished HTML. Breaking `view` to return a fixed title fails seven of its tests, and leaving the canonical address out fails nine. The table in `src/view.test.ts` says the same thing where a reader looks for it.
+- **Where.** "the Document the view returns" in `src/view.test.ts`.
+
+### Put a broken line back from a saved copy, not by replacing in reverse (2026-11-26, process)
+
+- **Symptom.** A script broke one line on purpose, ran a test, and undid the break by replacing the new text with the old. The break had turned `[a4FieldView(model, h)],` into `[],`, and the first `[],` in the file was in a comment 800 lines higher. The undo rewrote the comment and left the break in place.
+- **What to do.** Keep the file's text from before the break and write that back, then compare. A replacement is only safe in the direction that was checked to match once.
+- **The habit this belongs to.** Every test added after the code is broken once to see it fail ("A test can pass because the thing it guards never runs in a test", below). The pull request for the test debt lists each breakage and the test that caught it.
+
 ### A browser's cache is watched from Chrome's own network events (2026-11-26, caching)
 
 - **What happens.** Nothing in the suite can see a browser's cache, and neither the dev server nor Vite's preview sends the headers in `vercel.json`.
@@ -419,9 +474,9 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 ### A Scene test cannot follow a link (2026-11-25, routing)
 
 - **What happens.** A click on a link becomes `ClickedLink` only because the runtime listens on the real document. A scene has no runtime and no address bar, so clicking a link in one proves nothing about navigation.
-- **What to do.** Split the proof in three. A Scene test checks that each page shows what it should and that its link has the right `href`. A Story test checks `update`: `ClickedLink` returns the navigation Command, and `ChangedUrl` sets the route. The click through itself, with back and forward, is a check by hand in headless Chrome: no automated test covers it, or the `routing` option in `entry.ts`.
+- **What to do.** Split the proof in three. A Scene test checks that each page shows what it should and that its link has the right `href`. A Story test checks `update`: `ClickedLink` returns the navigation Command, and `ChangedUrl` sets the route. The click through itself, with back and forward, was a check by hand in headless Chrome until 2026-11-26. It is now a test that starts a runtime (the entry "The real app runs in happy-dom" above). `src/entry.ts` and its `routing` option are still outside the suite: the test wires the app itself.
 - **Also.** A scene has no assertion for the document's title, so the title is a pure function, `pageTitle`, with a test of its own.
-- **Where.** "pages" in `src/scene.test.ts`, "routing" in `src/story.test.ts`, `src/view.test.ts`.
+- **Where.** "pages" in `src/scene.test.ts`, "routing" in `src/story.test.ts`, `src/view.test.ts`, `src/app.runtime.test.ts`.
 
 ### A test can pass because the thing it guards never runs in a test (2026-11-24, Sentry)
 
@@ -434,7 +489,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 ### Testing Sentry without the network (2026-11-24, Sentry)
 
 - **How.** `initSentry` takes overrides. A test passes `enabled: true` (tests run on `localhost`, where reporting is off), a `transport` that records envelopes, and a `beforeSend` that records events. `Sentry.close()` runs after each test.
-- **Why two recorders.** The lint allows no type assertions, and an envelope's payload is untyped. `beforeSend` receives a typed event, so assertions read from there; the transport answers "was anything sent at all".
+- **Why two recorders.** The lint allows no type assertions, and an envelope's payload is untyped. `beforeSend` receives a typed event, so assertions read from there; the transport answers "was anything sent at all". One group does read inside an envelope, for what the SDK adds after `beforeSend` (the entry on the "no IP address" mark above).
 - **Where.** `startRecording` in `src/sentry.test.ts`, the only test file allowed to import `@sentry/browser`.
 
 ### There are no Node types, so a test cannot listen for unhandled rejections (2026-11-24, Sentry)
@@ -445,8 +500,8 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 ### `Command.resolveAll` passes when a listed Command was never returned (2026-11-24, tuner)
 
 - **What happens.** `resolveAll` resolves the Commands that are pending and ignores the pairs that match nothing. Three Story tests list Listbox and Popover Commands (`FocusButton`, `UnlockScroll`, `RestoreInert`) that `update` does not return on that path, so those lines assert nothing. `resolveAllExact` fails on an unused pair.
-- **What to do.** Prefer `resolveAllExact`, or `Command.expectExact` first. Tightening the three tests is in the backlog.
-- **Where.** The two "tuning" tests and "closing the A4 menu" in `src/story.test.ts`.
+- **What to do.** Prefer `resolveAllExact`, or `Command.expectExact` first. The three tests were tightened on 2026-11-26: each now lists only what is returned, and making the Popover or the Listbox modal, which adds the two Commands, fails them.
+- **Where.** The "tuning" tests and "closing the A4 menu" in `src/story.test.ts`.
 
 ### Story has no managed-resource steps; Scene does (2026-11-24, tuner)
 
@@ -469,7 +524,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **A working microphone.** Chrome plays a WAV file as the microphone: `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream --use-file-for-fake-audio-capture=<file.wav>`. A synthesised 110 Hz tone reads as A2, 110.00 Hz.
 - **No microphone.** Leave out the last two flags. The VM has no audio device, so the page gets `NotFoundError`, which is the one failure that can be produced on demand to send a real report to Sentry.
 - **What it is run with.** `/usr/bin/google-chrome` and the `playwright-core` already installed in `~/projects/stem-shovel`. The scripts were session scratch and are not in the repository.
-- **What it covers that the suite does not.** Click-through of the picker and the menu, stacking order, and everything about what Sentry receives from a built site.
+- **What it covers that the suite does not.** Stacking order and where an open list lands, a real microphone, the takeover of a prerendered page, and everything about what Sentry receives from a built site. Until 2026-11-26 it was also the only click-through of the picker, the menu and the pages. Those are in the suite now.
 
 ## Sentry
 
@@ -538,7 +593,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **How it was found.** A local build pushed through the same upload path was byte for byte what production served, and its map on disk resolved all nine frames correctly. Sentry's answers matched a lookup one line up. So the uploaded copy differed from the served one.
 - **Cause.** [sentry-javascript #26658](https://github.com/getsentry/sentry-javascript/issues/26658). On Vite 8 the minifier rewrites the snippet that carries the bundle's debug ID. The upload tool bundled with the plugin (`sentry` 0.49.0) no longer recognises it and adds its own line to the uploaded copy.
 - **Fix.** `@sentry/vite-plugin` 11.16.0, which bundles `sentry` 0.50.0. `sentry sourcemap inject --dry-run` on a built file shows the difference: the old tool modifies the file, the new one skips it.
-- **Guard.** There is no automated test. After changing the plugin's version, send a test report from production and check that its frames name files under `src/` with the right lines.
+- **Guard.** There is no automated test, and there cannot be one in the suite: the frames are resolved by Sentry, from maps that only a Vercel build uploads. After changing the plugin's version, send a test report from production and check that its frames name files under `src/` with the right lines.
 
 ### A reported message is titled by the function that sent it (2026-11-24, Sentry)
 
