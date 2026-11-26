@@ -108,7 +108,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **How.** Foldkit's Vite plugin bundles the app twice, for the browser and for Node, then calls `renderPage` in `src/entry.server.ts` once for each path in `prerenderPaths` and writes the result. The browser's script calls `Runtime.hydrate`, which takes the HTML over where `Runtime.run` would draw the page from nothing.
 - **What it costs.** Foldkit marks this experimental and says to expect breaking changes: after a Foldkit upgrade, run a build and the browser check before anything else. The app no longer shows Foldkit's Flags. A page added to `src/route.ts` must also be added to `prerenderPaths`, and nothing checks that.
 - **A page that looks ready before it is.** See the next entry.
-- **The script's name changes on every build,** because the build id is random and compiled into it. Every deploy, a docs-only one included, makes a returning visitor download the script again (161 kB compressed). The stylesheet's name is stable.
+- **The script's name changes on every build.** Every deploy, a docs-only one included, makes a returning visitor download the script again. The random build id compiled into it is one of three causes: see "Three things rename the script on a deploy that did not change it".
 - **An old page whose script is gone** shows the tuner with a dead On / Off and no message, where it used to be blank. How often Vercel produces that was not checked.
 - **Tried first.** A throwaway spike on a branch answered the open questions before the design was written: the views needed no change, and the saved preferences did (next entry).
 - **Where.** `src/entry.server.ts`, `src/entry.ts`, the `ssr` option in `vite.config.ts`, `outputDirectory` in `vercel.json`. The design is `docs/superpowers/specs/2026-11-25-prerender-design.md`.
@@ -355,6 +355,15 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Testing
 
+### A browser's cache is watched from Chrome's own network events (2026-11-26, caching)
+
+- **What happens.** Nothing in the suite can see a browser's cache, and neither the dev server nor Vite's preview sends the headers in `vercel.json`.
+- **What to do.** Serve the build with a static server that applies the header rules, open the page twice in one browser context (two tabs of one context share a cache), and listen to the DevTools protocol's `Network` events. They say for each file whether it came from the cache and how many bytes crossed the network.
+- **Three traps.** A route installed with Playwright's `page.route` switches the browser's cache off, so the script installs none. `Network.responseReceived` reports a file the server answered 304 for as the 200 that is in the cache: the status on the wire is in `Network.responseReceivedExtraInfo`. And a plain file response from Bun carries no `ETag` and answers no conditional request, so without help every repeat visit downloads everything.
+- **The static server changed.** It used to add the headers of every rule that has no condition to every response. With the rule for `/assets/` that would have marked the pages immutable. It now applies a rule only where its `source` fits, and with one more argument it answers as Vercel does: the default `Cache-Control`, an `ETag`, a 304, gzip.
+- **What it covers.** Before merging, a build served locally. After, the live site: the same script prints each page's `Cache-Control`, and that of a missing file under `/assets/`.
+- **Where.** The scripts are session scratch, like the others (the entry "Checking the real page in headless Chrome" below).
+
 ### A crash is forced in the real page from outside the app (2026-11-26, crash screen)
 
 - **How.** In headless Chrome, with the fake microphone and the tuner listening, a script replaces `AnalyserNode.prototype.getFloatTimeDomainData` with a function that throws. The next reading throws inside the readings Subscription, and the runtime crashes within a twentieth of a second. No bug is shipped to make it possible.
@@ -464,6 +473,15 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Sentry
 
+### What the SDK's size switches save, and where they work (2026-11-26, Sentry)
+
+- **Measured,** with one build id so the numbers compare, raw and as gzip. As it is: 512.12 kB and 165.76 kB. Debug statements out (`__SENTRY_DEBUG__: false`): 506.82 kB and 163.89 kB, a saving of 5.30 kB, 1.0%. Tracing out (`__SENTRY_TRACING__: false`): 0.15 kB. Both: 5.45 kB, or 1.91 kB as gzip. The four replay switches: nothing, because no replay code is in the script.
+- **Decision.** Nothing was changed. One percent is not a saving a visitor can notice, and the tests cannot show that reports stay the same: Vitest does not read `vite.config.ts`.
+- **The plugin's option reaches the live build only.** `bundleSizeOptimizations` belongs to the Sentry Vite plugin, and with `disable: true` the whole plugin is swapped for an empty one. This project disables it everywhere but on Vercel. So the option would trim the live script and no other: not a local build, and not the one a browser check runs against. All the option does is replace a flag in the SDK's code, and Vite's `define` does that in every build. The numbers above were made with `define`.
+- **What the debug switch removes.** Read through the SDK: its debug logging, and one check of the DSN's shape. Nothing that a report contains. With it, `debug: true` would print nothing.
+- **An explicit list of integrations saves 27 bytes.** `Sentry.init` names every default integration itself (`getDefaultIntegrations`), so the bundler keeps them all whatever list it is given. Keeping `BrowserSession` out of the script would mean not calling `Sentry.init` and assembling the client by hand, to save its 485 bytes. One default, `conversationIdIntegration`, is not exported by `@sentry/browser`, so a list written by hand could not name the same set.
+- **`@sentry/browser` already resolves to its production build** (`build/npm/esm/prod`), which has no debug statements. The 5.30 kB is in `@sentry/core` and `@sentry/browser-utils`.
+
 ### Sentry answers 200 to a report it then drops (2026-11-25, Sentry)
 
 - **What was seen.** With Allowed Domains set, four reports sent by hand with an `Origin` that is not on the list each got `200` and an event id back. None of them ever appeared in Sentry. A fifth, identical but for an allowed `Origin`, appeared within two minutes.
@@ -548,7 +566,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ### What Sentry added to the bundle (2026-11-24, Sentry)
 
-- **Measured.** 398 kB before, 491 kB after (159 kB compressed). The plugin's `bundleSizeOptimizations` may trim it; not tried. In the backlog.
+- **Measured.** 398 kB before, 491 kB after (159 kB compressed). Whether the plugin's `bundleSizeOptimizations` trims it was tried on 2026-11-26: by 1%. See "What the SDK's size switches save, and where they work" above.
 
 ## Varlock and the build
 
@@ -587,6 +605,23 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## The page and its assets
 
+### Three things rename the script on a deploy that did not change it (2026-11-26, build)
+
+- **Symptom.** The script has a new name after every deploy, a docs-only one included, so a returning visitor downloads all of it again (about 171 kB) even though a browser now keeps a hashed file for a year.
+- **Cause 1: Foldkit's build id.** `foldkit()` makes a random id for each build and compiles it into the script and onto each page's root element. `Runtime.hydrate` compares the two and stops if they differ, so a script never takes over a page drawn by another build. The plugin accepts an id from the app: the `buildId` option of `foldkit()`, or the `FOLDKIT_BUILD_ID` environment variable (`repos/foldkit/packages/vite-plugin-foldkit/src/buildToken.ts`). With a fixed id, two builds gave the same script and the same pages, byte for byte.
+- **Cause 2: Sentry's release.** On a Vercel build the Sentry plugin writes `SENTRY_RELEASE={id:"<the commit>"}` at the top of the script. Read in the live script. The commit is new on every deploy, so the script is too, whatever the build id does. The plugin's documentation for `release.inject` describes exactly this.
+- **Cause 3: the stylesheet.** Vite gives the script a new name when the stylesheet changes, although the script's bytes stay the same: three builds gave one script, by its SHA-256, under three names. And the stylesheet changed whenever a document gained a word that Tailwind takes for a class.
+- **What was done.** Cause 3, in part: Tailwind now scans `src` only (the entry on Tailwind below).
+- **What was not, and why.** A stable build id by itself changes nothing on Vercel, because of cause 2. Removing both means an id made from the files the script is built from, and the release taken out of the script: `release.inject: false` for the plugin, the commit written into each page by `src/entry.server.ts`, and `initSentry` reading it from the page. That moves how a report gets its release, with the proof only on the live site, for a small gain: of the 19 commits on `main` so far, one left the script's inputs alone and one more touched only tests. A change and its documents go in one pull request here, and every release changes the version, which is in the script. In the backlog.
+- **Would a stable id be safe?** For hydration, yes. A page names its script by a hash of the script's contents, so a page can only ever load the script it was built with, whatever the two ids say. The id guards the case where that pairing can go wrong: a script with a fixed name, or pages drawn by a server at request time.
+- **Where.** `foldkit()` and `sentryVitePlugin()` in `vite.config.ts`; `src/styles.css`. The design is `docs/superpowers/specs/2026-11-26-script-size-and-caching-design.md`.
+
+### Where the script's bytes are (2026-11-26, build)
+
+- **Measured.** The script is 512 kB, 166 kB as gzip. By its source map, in bytes of the minified file: Effect 153.8 kB (30.5%), Foldkit 150.2 kB (29.8%), Sentry 90.6 kB (18.0%), Foldkit UI 47.3 kB (9.4%), the app itself 42.2 kB (8.4%), Floating UI, which Foldkit UI uses, 17.3 kB (3.4%), Vercel Analytics 1.9 kB.
+- **What it means.** Three fifths of the script is the framework and Effect. Sentry is under a fifth, and most of that is its core (65.7 kB), which every report passes through. The switches that trim it save 1% (the Sentry section, "What the SDK's size switches save").
+- **How.** A build with `build.sourcemap: true`, then each mapped span of the minified file counted against the package its source is in. A throwaway script, not in the repository.
+
 ### An SVG that a browser draws inline can still fail as an image (2026-11-24, favicon)
 
 - **Symptom.** The icon file as supplied did not load as an image at all (width 0 in Chrome), so it could not have worked as a favicon.
@@ -597,10 +632,11 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ### Tailwind reads comments and documents as if they were markup (2026-11-24, build)
 
-- **What happens.** Tailwind 4 scans every file in the project as plain text for class names, comments and Markdown included. An ordinary word that is also a utility name becomes a rule in the built stylesheet.
-- **Seen.** The teaching comments added `.contents{display:contents}` (27 bytes) from the word "contents" in a test file's comment. The stylesheet already carried unused rules from prose in `docs/`: `.hidden`, `.static`, `.container`, `.table`, `.filter`, `.visible`, `.invisible`, `.inline`, `.ring`, `.transition`.
-- **What it costs.** A few unused rules. No class the page uses is affected.
-- **What to do.** Limiting the scan to `src` would end it. In the backlog. Until then, expect the built CSS to move when prose changes.
+- **What happens.** Left to itself, Tailwind 4 scans every file in the project as plain text for class names, comments and Markdown included. An ordinary word that is also a utility name becomes a rule in the built stylesheet.
+- **Seen.** The teaching comments added `.contents{display:contents}` (27 bytes) from the word "contents" in a test file's comment. The stylesheet already carried unused rules from prose: `.hidden`, `.static`, `.container`, `.table`, `.filter`, `.visible`, `.invisible`, `.inline`, `.ring`, `.transition`.
+- **What it costs.** A few unused rules. No class the page uses is affected. And a new name for the stylesheet whenever such a word is written, which renames the script as well ("Three things rename the script" above).
+- **Fix, for the documents (2026-11-26).** `@import 'tailwindcss' source('.')` in `src/styles.css` limits the scan to the stylesheet's own folder, `src`. Writing a document no longer changes the stylesheet. The built file lost one rule, `.transition`, and three theme variables that nothing else used, and went from 27.61 kB to 27.00 kB. Screenshots of every page at two widths were the same, byte for byte, before and after.
+- **Still true for comments in `src`.** The other ten rules above are still built: each word is in a comment or a test under `src`. In the backlog.
 
 ### Comments in a hand-written HTML file are served (2026-11-24, build)
 
@@ -611,6 +647,18 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **What happens.** `.oxlintrc.json`, `.oxlintrc.effect.json` and `tsconfig.json` have `//` comments. oxlint 1.85.0, `tsc` 7 and oxfmt all accept them, and the lint rules were probed afterwards and still fire. A tool that reads these files as strict JSON would not; an editor without the oxc extension may underline them.
 
 ## Vercel and domains
+
+### Hashed files are kept for a year, and a page is checked on every visit (2026-11-26, caching)
+
+- **What was seen.** Every file was served `Cache-Control: public, max-age=0, must-revalidate`, the script and the stylesheet included. That is Vercel's default for a static file. On a repeat visit Chrome asked for the page, the stylesheet, the script and the icon again, and was answered `304 Not Modified` four times. Nothing was downloaded twice (297 bytes in all), but the script could not start until its question was answered.
+- **Fix.** A header rule in `vercel.json` for `/assets/(.*)`: `public, max-age=31536000, immutable`. Vite writes the script and the stylesheet into `assets/` with a hash of their contents in the name, so a name never comes to mean other bytes, and a browser may use its copy without asking.
+- **How the rules combine.** Every rule whose pattern and conditions fit a request is applied, not only the first, and a rule's `Cache-Control` takes the place of Vercel's default. A page fits only the two older rules, so it keeps the default and is checked with the server on every visit. It has to be: the page is what names the current script. Read in Vercel's documentation for `vercel.json`, whose own example is this rule.
+- **Measured, before.** On the live site a first visit made 5 requests and transferred 184,428 bytes, 170,769 of them the script. A repeat visit made 4 requests, each answered 304.
+- **Measured, after.** Against a build served locally the way Vercel answers: a repeat visit makes 2 requests, for the page and the icon, and none for the script or the stylesheet.
+- **A rule reaches a 404 too.** The live site's answer for a file that does not exist carries the Content Security Policy, which comes from a rule. So a missing file under `/assets/` is very probably marked cacheable for a year as well. A browser asks for a missing file only when it holds a page from an older deploy and not that page's script, and a cached 404 does harm only if that name comes back, as it would after a rollback to that deploy. In the backlog, to be checked on the live site.
+- **Vercel compresses as it serves, and not hard.** Chrome was sent the script as Brotli, 170,769 bytes. gzip at its usual setting makes it 164,778, and Brotli at its highest 143,015. Vite's "gzip" figure in the build output is therefore a little under what a visitor downloads.
+- **Not checked before merging:** what Vercel itself sends. A preview is behind Vercel's sign-in, so the first proof is the browser check against the live site after the merge (the Testing section, "A browser's cache is watched from Chrome's own network events").
+- **Where.** `headers` in `vercel.json`; "only the files under /assets/ are cached for a year" in `src/site.test.ts`. The rule to follow is in `AGENTS.md`, "Prerendering".
 
 ### An address ending in `index.html` is redirected (2026-11-25, Vercel)
 

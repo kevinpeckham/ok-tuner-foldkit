@@ -11,11 +11,21 @@
 /*
  * Brings in Tailwind: its reset ("Preflight"), its default theme (the spacing
  * scale, and colours such as `slate`, `blue`, `green` and `red`, which view.ts
- * uses) and its utility classes. Tailwind scans the project's files as plain
- * text for class names and generates only the classes it finds. That is why
- * view.ts always writes a class name out in full.
+ * uses) and its utility classes. Tailwind scans files as plain text for class
+ * names and generates only the classes it finds. That is why view.ts always
+ * writes a class name out in full.
+ *
+ * `source('.')` says which files it scans: the folder this stylesheet is in,
+ * `src`, and nothing outside it. Left to itself Tailwind scans the whole
+ * project, the documents included, and an ordinary word in a document that
+ * is also the name of a utility ("transition", say) became a rule in the
+ * built stylesheet. That also gave the stylesheet a new file name whenever
+ * such a word was written, and Vite then renames the script with it
+ * (FINDINGS.md, "Tailwind reads comments and documents as if they were
+ * markup"). Comments in `src` are still read. Every class the app uses is
+ * written in a file under `src`.
  */
-@import 'tailwindcss';
+@import 'tailwindcss' source('.');
 
 /*
  * `@theme` defines design tokens. Each line is a CSS custom property, and the
