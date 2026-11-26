@@ -12,7 +12,8 @@
 //   update            (Model, Message) -> next Model + Commands. The only
 //                     place state changes, and a pure function
 //   Commands          one-shot side effects, described here and run by the
-//                     runtime (save the preferences, report a problem)
+//                     runtime (save the preferences, report a problem, wait
+//                     1.2 seconds)
 //   managedResources  the microphone, which exists only while the Model says
 //                     the tuner is starting or listening
 //   subscriptions     the stream of readings, which runs only while the Model
@@ -53,11 +54,12 @@
 // place only, whatever moved the address. The routes themselves, and the
 // mapping between a route and an address, are in src/route.ts.
 //
-// So nothing in this file calls anything. `update` never opens a microphone
-// and never writes to storage. It returns a Model that says the tuner is on,
-// or a Command that describes the write, and the runtime does the rest. That
-// is what lets src/story.test.ts test the tuner's behaviour with no
-// microphone, no browser storage and no runtime.
+// So nothing in this file calls anything. `update` never opens a microphone,
+// never writes to storage and never starts a timer. It returns a Model that
+// says the tuner is on, or a Command that describes the write or the wait,
+// and the runtime does the rest. That is what lets src/story.test.ts test
+// the tuner's behaviour with no microphone, no browser storage, no clock and
+// no runtime.
 //
 // This file never starts the runtime either. FOLDKIT.md ("File Organization")
 // keeps the call that does, `Runtime.hydrate`, in src/entry.ts, so tests and
@@ -156,6 +158,15 @@ const QUIET_TICKS_HELD = 12
 // bare number so that the unit cannot be mistaken.
 const READING_INTERVAL = Duration.millis(50)
 
+// How long a start may take before the page says what it is waiting for
+// (the WaitBeforeSlowStartHint Command). The usual reason for a long start
+// is the browser's permission prompt, which stays open until the person
+// answers it. A start that needs no prompt takes a fraction of this (about
+// a tenth of a second in headless Chrome), so it never shows the line, and
+// someone looking at a prompt they have not noticed is not left wondering
+// for long.
+const SLOW_START_DELAY = Duration.millis(1200)
+
 // MODEL
 
 // The Model is all of the app's state in one immutable value. In Foldkit it
@@ -178,7 +189,7 @@ const READING_INTERVAL = Duration.millis(50)
 //     `{ _tag: 'Failed', failure }`;
 //   - `TunerState.match(value, { Booting, Off, Starting, Listening, Failed })`, which
 //     calls the handler for the variant the value is. Every variant must have
-//     a handler, so adding a fifth state is a compile error at every `match`
+//     a handler, so adding a sixth state is a compile error at every `match`
 //     until it is handled.
 //
 // The five states:
@@ -192,7 +203,8 @@ const READING_INTERVAL = Duration.millis(50)
 //              is")
 //   Off        the tuner is off and the microphone is closed
 //   Starting   the button was pressed, and the permission prompt or the
-//              start of the audio is pending
+//              start of the audio is pending. Carries which start this is,
+//              and whether it has been going long enough to say so
 //   Listening  the microphone is open and readings are arriving
 //   Failed     the microphone could not be opened; carries the reason
 //
@@ -200,6 +212,8 @@ const READING_INTERVAL = Duration.millis(50)
 // can:
 //   Booting      --CompletedLoadPreferences-->    Off
 //   Off, Failed  --ClickedPower-->                Starting
+//   Starting     --CompletedWaitBeforeSlowStartHint-->
+//                                                 Starting (now slow)
 //   Starting     --SucceededAcquireMicrophone-->  Listening
 //   Starting     --FailedAcquireMicrophone-->     Failed
 //   Listening    --MeasuredInput-->               Listening (new values)
@@ -212,7 +226,20 @@ const READING_INTERVAL = Duration.millis(50)
 export const TunerState = defineTaggedUnion({
   Booting: {},
   Off: {},
-  Starting: {},
+  Starting: {
+    // Which start this is: 1 for the first press of the visit that started
+    // the tuner, 2 for the next, taken from `startCount` in the Model. It
+    // is here so that a timer can be matched to the start it was set for:
+    // see WaitBeforeSlowStartHint.
+    attempt: Schema.Number,
+    // Whether this start has lasted longer than SLOW_START_DELAY. It begins
+    // false, and the timer's report makes it true. The view then says that
+    // the tuner is waiting for the microphone. The fact lives inside this
+    // variant and not in a field of the Model, so that "slow" cannot be
+    // true of a tuner that is not starting, and leaving `Starting` clears
+    // it with no code to do so (FOLDKIT.md, "Code Style").
+    isSlow: Schema.Boolean,
+  },
   Listening: {
     // How loud the input is, from 0 to 1. The view draws it as the level bar.
     level: Schema.Number,
@@ -247,7 +274,7 @@ type Listening = typeof TunerState.Listening.Type
 // `TuningListbox.view`.
 export const TuningListbox = Listbox.create<Tuning>()
 
-// The Model: these seven fields are all the state the app has.
+// The Model: these eight fields are all the state the app has.
 //
 // What is not here matters as much. The note's name, its octave, the cents
 // label, "in tune" and the nearest string are not stored. The view works them
@@ -259,6 +286,11 @@ export const Model = Schema.Struct({
   route: AppRoute,
   // The power state above.
   tuner: TunerState,
+  // How many times the tuner has been started in this visit. Each start
+  // takes the next number as its `attempt`. It cannot live in `tuner`,
+  // because it has to outlast `Starting`: the point of it is to tell one
+  // start from the one before.
+  startCount: Schema.Number,
   // The id of the chosen tuning, such as 'standard' (src/tuning.ts).
   tuningId: Schema.String,
   // The frequency of the note A4 in Hz, which every other note is measured
@@ -309,10 +341,9 @@ export type Model = typeof Model.Type
 // There is no "NoOp" Message, and FOLDKIT.md forbids one. Seven of the
 // Messages below change nothing in the Model (ReleasedMicrophone, the two
 // results of SavePreferences, and every Completed* except
-// CompletedLoadPreferences). Each
-// still says what
-// happened, so the Message history in the Foldkit DevTools reads as a record
-// of events.
+// CompletedLoadPreferences and CompletedWaitBeforeSlowStartHint). Each
+// still says what happened, so the Message history in the Foldkit DevTools
+// reads as a record of events.
 export const Message = defineMessageUnion({
   // From the view: the power button was clicked.
   ClickedPower: {},
@@ -358,6 +389,10 @@ export const Message = defineMessageUnion({
   CompletedLoadExternal: {},
   // From the FocusPageHeading Command: it ran.
   CompletedFocusPageHeading: {},
+  // From the WaitBeforeSlowStartHint Command: its 1.2 seconds are up.
+  // `attempt` is the start the timer was set for, which may no longer be
+  // the one in progress.
+  CompletedWaitBeforeSlowStartHint: { attempt: Schema.Number },
 })
 export type Message = typeof Message.Type
 
@@ -376,13 +411,13 @@ const a4ToInput = (a4: number): string => `${a4}`
 // `urlToAppRoute` turns the address into the first route, so someone who
 // opens `/how-to` directly starts on that page.
 //
-// The first Model is the same for everyone: the tuner not yet running, and
-// the default tuning and A4. It has to be. `init` runs twice for each page: once in the
-// build, which draws the page into an HTML file (src/entry.server.ts), and
-// once in the browser, which takes that HTML over. The two must build the
-// same Model, or the browser would find a page that does not match what it
-// was about to draw. The build has no visitor and no localStorage, so
-// nothing a visitor saved can be in the first Model.
+// The first Model is the same for everyone: the tuner not yet running, no
+// start counted, and the default tuning and A4. It has to be. `init` runs
+// twice for each page: once in the build, which draws the page into an HTML
+// file (src/entry.server.ts), and once in the browser, which takes that HTML
+// over. The two must build the same Model, or the browser would find a page
+// that does not match what it was about to draw. The build has no visitor
+// and no localStorage, so nothing a visitor saved can be in the first Model.
 //
 // For the same reason the tuner starts as `Booting` and not `Off`: in the
 // build's drawing nothing works yet.
@@ -410,6 +445,7 @@ export const init: Runtime.RoutingApplicationInit<Model, Message> = url => ({
   model: {
     route: urlToAppRoute(url),
     tuner: TunerState.Booting(),
+    startCount: 0,
     tuningId: DEFAULT_PREFERENCES.tuningId,
     a4: DEFAULT_PREFERENCES.a4,
     a4Input: a4ToInput(DEFAULT_PREFERENCES.a4),
@@ -611,6 +647,50 @@ export const FocusPageHeading = Command.define('FocusPageHeading', {
     Effect.as(Message.CompletedFocusPageHeading()),
   ),
 })
+
+// Waits 1.2 seconds and says so. `update` returns it each time the tuner
+// starts, and its report is how `update` learns that a start is taking a
+// while: if the tuner is still starting when the report arrives, the view
+// says it is waiting for the microphone.
+//
+// This is how time gets into a Foldkit app. `update` is pure, so it cannot
+// look at a clock or set a timer. It describes the wait as a Command, the
+// runtime does the waiting, and the passing of the time comes back as a
+// Message like any other fact. `Effect.sleep` is Effect's delay: it holds up
+// only this Command, which the runtime runs on its own, and the app goes on
+// handling Messages meanwhile. FOLDKIT.md ("Commands") asks for it in place
+// of `setTimeout`. It cannot fail, so there is nothing to catch.
+//
+// The name follows a rule in the same section: a Command is named for what
+// its Effect does, which is to wait, and not for what `update` may do
+// afterwards. Whether a hint follows is `update`'s decision. The result
+// Message is named after the Command, with `Completed` in front.
+//
+// The timer is never cancelled. Nothing needs it to be: `update` ignores a
+// report that arrives when the tuner is no longer starting. `attempt` is
+// for the one case where that is not enough. Switch the tuner on, off and
+// on again within 1.2 seconds, and the first timer reports while the tuner
+// is starting for the second time. The Command is given the number of the
+// start it belongs to and hands it back in its Message, and `update` acts
+// only on the report of the start in progress. `@foldkit/ui` numbers its own
+// delays the same way (the `version` of its hover intent component).
+//
+// The browser's Permissions API can say that the person has yet to be asked,
+// but not in every browser in use: Firefox has answered a query about the
+// microphone only since version 132. The clock works everywhere, and it
+// also covers a start that is slow with no prompt open (FINDINGS.md, "The
+// tuner says what it is waiting for, by the clock").
+export const WaitBeforeSlowStartHint = Command.define(
+  'WaitBeforeSlowStartHint',
+  {
+    args: { attempt: Schema.Number },
+    messages: [Message.CompletedWaitBeforeSlowStartHint],
+    execute: ({ attempt }) =>
+      Effect.sleep(SLOW_START_DELAY).pipe(
+        Effect.as(Message.CompletedWaitBeforeSlowStartHint({ attempt })),
+      ),
+  },
+)
 
 // UPDATE
 
@@ -892,6 +972,29 @@ const enterRoute = (model: Model, nextRoute: AppRoute): Model =>
       }),
   })
 
+// Starts the tuner: from Off, or from Failed to try again.
+//
+// The Model counts one more start, and the tuner moves to Starting with
+// that count as its `attempt`. Nothing here opens the microphone. Starting
+// is a state in which the managed resource below requires it, so the
+// runtime opens it, and that is the moment the browser may ask the person
+// for permission.
+//
+// The one Command is the timer for this attempt (WaitBeforeSlowStartHint).
+// `attempt` is worked out once and used three times, so the Model, the
+// state and the Command cannot disagree about which start this is.
+const startTuner = (model: Model): UpdateReturn => {
+  const attempt = model.startCount + 1
+
+  return {
+    model: modifyFields(model, {
+      startCount: () => attempt,
+      tuner: () => TunerState.Starting({ attempt, isSlow: false }),
+    }),
+    commands: [WaitBeforeSlowStartHint({ attempt })],
+  }
+}
+
 // `update` is the heart of the app: the one function that decides what each
 // Message means. The runtime calls it with the current Model and a Message,
 // one Message at a time, and takes back the next Model and any Commands. It
@@ -915,29 +1018,59 @@ export const update = (model: Model, message: Message) =>
     // here opens or closes a microphone. Moving to Starting is enough,
     // because the managed resource below requires the microphone in that
     // state and the runtime opens it. Moving to Off is what closes it.
-    ClickedPower: () => ({
-      model: withTuner(
-        model,
-        TunerState.match(model.tuner, {
-          // Not running yet. The view disables the button in this state,
-          // so no click should arrive, and one that did changes nothing.
-          Booting: booting => booting,
-          Off: () => TunerState.Starting(),
-          // Already starting, so a second click changes nothing. The view
-          // also disables the button in this state.
-          Starting: starting => starting,
-          Listening: () => TunerState.Off(),
-          // Try again after a failure.
-          Failed: () => TunerState.Starting(),
-        }),
-      ),
-    }),
+    //
+    // Each handler returns a whole UpdateReturn, because the two that start
+    // the tuner also return a Command (`startTuner`).
+    ClickedPower: () =>
+      TunerState.match(model.tuner, {
+        // Not running yet. The view disables the button in this state,
+        // so no click should arrive, and one that did changes nothing.
+        Booting: () => ({ model }),
+        Off: () => startTuner(model),
+        // Already starting, so a second click changes nothing, and no
+        // second timer is set. The view also disables the button in this
+        // state.
+        Starting: () => ({ model }),
+        Listening: () => ({ model: withTuner(model, TunerState.Off()) }),
+        // Try again after a failure.
+        Failed: () => startTuner(model),
+      }),
+
+    // The timer of one start has run out (WaitBeforeSlowStartHint). If that
+    // start is still going, it is now a slow one, and the view says what the
+    // tuner is waiting for.
+    //
+    // Most of the time it is not still going. The microphone opened, or
+    // failed, or the person left the page, long before the 1.2 seconds were
+    // up, and the report finds the tuner in another state and changes
+    // nothing. That is what keeps the line off the screen for a quick start.
+    //
+    // NOTE: the comparison of `attempt` is for a second start soon after a
+    // first. The first start's timer then reports during the second start,
+    // and without the comparison it would mark the second one slow when it
+    // had only just begun.
+    CompletedWaitBeforeSlowStartHint: ({ attempt }) =>
+      TunerState.match(model.tuner, {
+        Booting: () => ({ model }),
+        Off: () => ({ model }),
+        Starting: starting =>
+          starting.attempt === attempt
+            ? {
+                model: withTuner(
+                  model,
+                  TunerState.Starting({ attempt, isSlow: true }),
+                ),
+              }
+            : { model },
+        Listening: () => ({ model }),
+        Failed: () => ({ model }),
+      }),
 
     // The managed resource says the microphone is open. A tuner that is
-    // Starting moves on to a fresh Listening state. In every other state the
-    // Message changes nothing, though `match` still needs a handler for
-    // each. Already Listening is the development case described in the NOTE
-    // under SUBSCRIPTION.
+    // Starting, slow or not, moves on to a fresh Listening state. In every
+    // other state the Message changes nothing, though `match` still needs a
+    // handler for each. Already Listening is the development case described
+    // in the NOTE under SUBSCRIPTION.
     SucceededAcquireMicrophone: () => ({
       model: withTuner(
         model,

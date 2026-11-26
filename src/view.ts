@@ -70,6 +70,7 @@
 //         settingsMenuView   the three-dot menu          (ui: Popover)
 //           a4FieldView      the A4 number field         (ui: Input)
 //       powerButtonView      On / Off                    (ui: Button)
+//       startHintView        "Waiting for the microphone", on a slow start
 //       failureView          the error line
 //       (inline)             the "OK Tuner 001" badge
 //
@@ -192,6 +193,12 @@ const LEVEL_BAR_SCALE = 50
 // line while nothing is heard. An ordinary space on its own would take up no
 // room at all. This one is laid out like a letter, so the line keeps its box.
 const NON_BREAKING_SPACE = ' '
+// What the tuner says when a start has gone on for a while (`startHintView`).
+// The usual cause is the browser's permission prompt, which the person may
+// not have noticed. The app cannot be sure a prompt is open, hence "if":
+// the same line shows when the audio itself is slow to start.
+const WAITING_FOR_MICROPHONE =
+  'Waiting for the microphone. If your browser is asking for permission, allow it.'
 
 // DISPLAY
 
@@ -221,10 +228,16 @@ type Heard = Readonly<{
 // A name that starts with `maybe` holds an `Option`: that is the project's
 // convention (FOLDKIT.md, "Code Style"). `maybeHeard` is None when no note is
 // sounding, and `maybeFailure` is None unless the microphone failed.
+//   isStarting      the button was pressed and the microphone is not open
+//                   yet.
+//   isStartingSlow  the same, and it has been so for more than 1.2 seconds
+//                   (`isSlow` in the Model's `Starting` state). Never true
+//                   unless `isStarting` is.
 type Display = Readonly<{
   isBooting: boolean
   isListening: boolean
   isStarting: boolean
+  isStartingSlow: boolean
   level: number
   maybeHeard: Option.Option<Heard>
   maybeFailure: Option.Option<string>
@@ -237,6 +250,7 @@ const quietDisplay: Display = {
   isBooting: false,
   isListening: false,
   isStarting: false,
+  isStartingSlow: false,
   level: 0,
   maybeHeard: Option.none(),
   maybeFailure: Option.none(),
@@ -258,7 +272,13 @@ const toDisplay = (model: Model): Display =>
     // Drawn like Off, with one difference: the power button is disabled.
     Booting: () => ({ ...quietDisplay, isBooting: true }),
     Off: () => quietDisplay,
-    Starting: () => ({ ...quietDisplay, isStarting: true }),
+    // `attempt`, the other field of this state, is `update`'s business: the
+    // view has no use for which start this is.
+    Starting: ({ isSlow }) => ({
+      ...quietDisplay,
+      isStarting: true,
+      isStartingSlow: isSlow,
+    }),
     Listening: ({ level, maybeReading, needleCents }) => ({
       ...quietDisplay,
       isListening: true,
@@ -532,6 +552,7 @@ const tunerView = (model: Model, h: HtmlBuilder<Message>): Html => {
       stringsView(tuning, model.a4, display, h),
       controlsView(model, tuning, display, h),
       powerButtonView(display, h),
+      startHintView(display, h),
       failureView(display, h),
       // The model badge. `pointer-events-none` and `select-none` make it part
       // of the casing: it cannot be clicked or selected.
@@ -1319,6 +1340,12 @@ const a4FieldView = (model: Model, h: HtmlBuilder<Message>): Html =>
 // What the app provides: the element, its content, its classes, and the two
 // ARIA states that only the app knows about.
 //
+// A disabled button must not look pressable. Because Button leaves the
+// native `disabled` attribute off, the browser does nothing about that by
+// itself: the pointer still becomes a hand over the button if the classes
+// say so, and a `hover:` class still applies. So the cursor and the hover
+// colour are chosen here, by `powerButtonLook`, from the state.
+//
 // Before the app is running the button is drawn disabled and dimmed. The
 // page is prerendered, so this view is also what the build writes into the
 // HTML file, and a browser shows that file before the script has loaded. A
@@ -1335,6 +1362,25 @@ const a4FieldView = (model: Model, h: HtmlBuilder<Message>): Html =>
 // says what happened ("the power button was clicked"), not what should
 // happen: `update` decides, from the tuner's state, whether that means start
 // or stop (FOLDKIT.md: Messages are facts, not commands).
+
+// The classes that depend on whether the button can be pressed.
+//   - Before the app is running: the ordinary cursor, and dimmed.
+//   - Starting: the ordinary cursor, and not dimmed. The button is busy, not
+//     out of use, and the spinner in it already says so.
+//   - Otherwise: the pointing hand, and a darker ground under the pointer.
+// It is an `if` chain, like `stringChipTone`, because three cases would
+// otherwise be one ternary inside another. Each class name is written
+// whole, as Tailwind needs (see `powerLightView`).
+const powerButtonLook = (display: Display): string => {
+  if (display.isBooting) {
+    return 'cursor-default opacity-50'
+  } else if (display.isStarting) {
+    return 'cursor-default'
+  } else {
+    return 'cursor-pointer hover:bg-slate-900'
+  }
+}
+
 const powerButtonView = (display: Display, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('mt-8 max-w-fit rounded-[7px] border border-blue-200/10')],
@@ -1357,11 +1403,10 @@ const powerButtonView = (display: Display, h: HtmlBuilder<Message>): Html =>
                 // `aria-busy` says that the button is in the middle of
                 // changing: it is true while the tuner is starting.
                 h.AriaBusy(display.isStarting),
-                // The last part of the class list is the not-yet-running
-                // look: dimmed, and with the ordinary cursor in place of the
-                // pointing hand.
+                // The last part of the class list is the cursor and the
+                // hover colour, which a disabled button does without.
                 h.Class(
-                  `flex items-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-[15px] shadow ${display.isListening ? 'text-blue-100/80' : 'text-blue-100/70'} ${display.isBooting ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-900'}`,
+                  `flex items-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-[15px] shadow ${display.isListening ? 'text-blue-100/80' : 'text-blue-100/70'} ${powerButtonLook(display)}`,
                 ),
               ],
               [
@@ -1381,6 +1426,42 @@ const powerButtonView = (display: Display, h: HtmlBuilder<Message>): Html =>
         },
         h,
       ),
+    ],
+  )
+
+// The place where the tuner says what it is waiting for.
+//
+// A start usually takes a fraction of a second. When the browser has to ask
+// for permission it takes as long as the person does, and all the button
+// says meanwhile is "Starting…". Someone who has not noticed the prompt
+// sees a tuner that seems stuck. So once a start has lasted 1.2 seconds
+// (`update` marks it slow: WaitBeforeSlowStartHint in src/main.ts), a line
+// here says that the tuner is waiting for the microphone and what to do.
+// When the start ends, in any way, the line goes.
+//
+// `role="status"` makes the div a polite live region: a screen reader reads
+// out what appears in it once it has finished what it was saying. That is
+// the right weight for a hint. The failure line below is an `alert`, which
+// interrupts.
+//
+// NOTE: the div is always in the page, empty, and only the paragraph inside
+// it comes and goes. `failureView` below adds and removes its whole
+// element, and this one must not copy it. A screen reader announces a
+// change inside a live region it already knows about, and may say nothing
+// when a region arrives with its text already in it. An `alert` is the
+// exception browsers make. `h.empty` is dropped from the list of children,
+// so the div really is empty, and an empty div takes no room: nothing moves
+// until there is a line to show.
+const startHintView = (display: Display, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Role('status')],
+    [
+      display.isStartingSlow
+        ? h.p(
+            [h.Class('mt-3 max-w-[75%] text-sm text-slate-950')],
+            [WAITING_FOR_MICROPHONE],
+          )
+        : h.empty,
     ],
   )
 

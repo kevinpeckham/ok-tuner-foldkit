@@ -8,6 +8,17 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### The tuner says what it is waiting for, by the clock (2026-11-26, microphone)
+
+- **Symptom.** While the browser's permission prompt was open, the On / Off button said "Starting…" and nothing else. Someone who had not noticed the prompt saw a tuner that seemed stuck.
+- **Fix.** A press that starts the tuner returns a Command, `WaitBeforeSlowStartHint`, which sleeps 1.2 seconds and reports with a Message. If the tuner is still `Starting` then, `update` sets `isSlow` inside that state, and the view shows one line under the button: "Waiting for the microphone. If your browser is asking for permission, allow it." Leaving `Starting`, in any direction, removes it.
+- **Why the clock and not the Permissions API.** Kevin's decision. `navigator.permissions.query({ name: 'microphone' })` can say that the person has yet to be asked. The reason given was that Firefox does not support that name. That is out of date: MDN's compatibility data lists it in Firefox from version 132 (October 2024), Chrome from 64 and Safari from 16. The clock still has two things the query has not: it works in a browser older than those, and it also speaks up when a start is slow with no prompt open. Using the query to show the line at once, with the clock as the fallback, is a possible later change.
+- **Why the attempts are numbered.** A Command runs to its end once returned, so a timer can report after its start is over. In any state but `Starting` the report changes nothing. But switch the tuner on, off and on again inside 1.2 seconds, and the first timer reports during the second start. Unnumbered, that showed the line for 0.2 seconds on a start that then opened (seen in headless Chrome with the comparison taken out). So the Model counts starts (`startCount`), `Starting` carries its `attempt`, the Command and its Message carry the same number, and `update` acts on a report only for the attempt in progress. `@foldkit/ui`'s hover intent numbers its delays the same way.
+- **Why the status region is always in the page.** The line is announced through `role="status"`. A screen reader announces a change inside a live region it already knows about, and may say nothing when a region arrives with its text already in it (MDN, "ARIA live regions": include the region in the initial markup). So the region is drawn empty from the first render, prerendered file included, and only the paragraph inside it comes and goes. A `role="alert"`, like the failure line, is the exception browsers make. Not checked with a screen reader.
+- **What a visitor sees.** A start that needs no prompt took about 0.11 seconds in headless Chrome, so it never shows the line. The line's contrast against the pedal is 4.9:1 at its lowest. The pedal grows by the height of the line while it shows (in the backlog, under "Look").
+- **No cancel button.** The browser's prompt has one.
+- **Where.** `WaitBeforeSlowStartHint`, `startTuner` and `CompletedWaitBeforeSlowStartHint` in `src/main.ts`; `startHintView` in `src/view.ts`; "waiting for the microphone" in both test files; the design is `docs/superpowers/specs/2026-11-26-microphone-polish-design.md`.
+
 ### A missing, busy or lost microphone is not a fault (2026-11-25, microphone)
 
 - **Why.** The alert used to show the browser's own words ("Requested device not found"), and the failure went to Sentry as a fault. No microphone, a microphone another program is using, and a microphone unplugged mid-session are the person's situation: there is nothing in a report for us to fix. Each is now a kind of its own (`NotFound`, `Busy`, `Lost`) with a sentence that says what to do, and none is reported. Kevin left the reporting question open in the backlog; this was my call.
@@ -142,6 +153,13 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Foldkit and Effect
 
+### A disabled Button still looks pressable unless the classes say otherwise (2026-11-26, Foldkit)
+
+- **Symptom.** While the tuner was starting, the On / Off button was disabled and still showed the pointing hand and changed colour under the pointer.
+- **Cause.** `Button` from `@foldkit/ui` marks a disabled button with `aria-disabled="true"` and `data-disabled` and leaves the native `disabled` attribute off, so that the button can still be reached with the keyboard. The browser therefore treats it as an ordinary button: `cursor-pointer` and a `hover:` class go on applying.
+- **Fix.** The cursor and the hover colour are chosen from the state (`powerButtonLook`): the ordinary cursor and no hover colour while booting or starting, the pointing hand and the hover colour otherwise. Starting is not dimmed, because the spinner already says it is busy.
+- **Where.** `powerButtonLook` and `powerButtonView` in `src/view.ts`; "the power button under a pointer" in `src/scene.test.ts`.
+
 ### The tuner could not hear a five-string bass's low B (2026-11-25, pitch)
 
 - **Symptom.** The list offers "Bass - 5-string", whose lowest string is 30.87 Hz. The detector searched from 40 Hz, so that string read as nothing at all. Listed in the backlog as untested; a test confirmed it.
@@ -271,6 +289,13 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **How it was checked.** The comments were added without touching code: each file, with comments stripped, was compared before and after.
 
 ## Testing
+
+### A test cannot leave a timer pending, so it resolves it with a number no attempt has (2026-11-26, tuner)
+
+- **Symptom.** Once a press returned the timer Command, every Story and Scene test that pressed On / Off and then let the microphone answer failed: "I found unresolved Commands". Neither kind of test sends a Message while a Command is pending, unless the Command is defined as interruptible.
+- **Why that is awkward here.** In the app the microphone usually answers first and the timer reports afterwards. Resolving the timer first, with its real Message, marks the start slow, which is the other case.
+- **Fix.** The timer's Message carries the number of its attempt, and `update` ignores a number that is not the current attempt's. A test resolves the Command with a number no attempt has (`timerSetAside`), which takes it off the pending list and changes nothing. A Story test then sends the real report by hand, with `message(...)`, at the point in the order it wants. Foldkit's own tests for its hover intent component do the same (`resolveStaleOpen` in `repos/foldkit/packages/ui/src/hoverIntent/story.test.ts`).
+- **Where.** `timerSetAside` in `src/story.test.ts` and `src/scene.test.ts`.
 
 ### Files that are not code can still be held to the code (2026-11-25, going public)
 
