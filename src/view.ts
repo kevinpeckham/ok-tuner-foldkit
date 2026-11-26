@@ -142,8 +142,9 @@ import { COLUMN_CLASS, MAIN_CLASS, PAGE_CLASS } from './layout'
 // From main.ts: the `Model` this file reads, the `Message` constructors it
 // attaches to elements, `TunerState` (the tagged union for booting, off,
 // starting, listening and failed) and `TuningListbox` (the Listbox bound to our
-// `Tuning` type). `IN_TUNE_CENTS` is the tuner's rule for "in tune", kept in
-// main.ts beside its other constants.
+// `Tuning` type). `IN_TUNE_CENTS` is the number in the tuner's rule for "in
+// tune", kept in main.ts beside its other constants. The rule itself is
+// under IN TUNE below.
 import {
   IN_TUNE_CENTS,
   Message,
@@ -227,14 +228,58 @@ const WAITING_FOR_MICROPHONE =
 //   note         the nearest note (name, octave, MIDI number). Derived here
 //                from the frequency and the A4 setting.
 //   needleCents  how far the needle is from that note, in cents. From the
-//                Model: `update` smooths it from reading to reading.
-//   isInTune     derived: the needle is within IN_TUNE_CENTS of the note.
+//                Model: `update` smooths it from reading to reading. Only
+//                the needle marker's position reads it.
+//   shownCents   derived: the needle as a whole number of cents, which is
+//                the number the detail line prints (`wholeCents`).
+//   isInTune     derived from `shownCents`: see IN TUNE below.
 type Heard = Readonly<{
   frequency: number
   note: Note
   needleCents: number
+  shownCents: number
   isInTune: boolean
 }>
+
+// IN TUNE
+//
+// One rule, in one place: the needle, rounded to a whole cent, is in tune
+// when it is within `IN_TUNE_CENTS` of the note. It goes by the number as
+// shown, on purpose. The detail line prints a whole number of cents and a
+// word beside it, and the two must never disagree. Until 0.7.2 the word
+// came from the needle before rounding, so a needle at 5.4 read "+5 cents ·
+// sharp" while one at 5.0 read "+5 cents · in tune".
+//
+// Four things on the page say "in tune": the word in the detail line, the
+// needle marker's colour, the lit string chip's colour, and the green zone
+// of the needle bar. The first three read `isInTune` from the `Heard`
+// record that `toDisplay` builds with the two functions below, and the
+// zone is drawn from `IN_TUNE_EDGE_CENTS`. Nothing else in the file
+// compares cents with `IN_TUNE_CENTS`. Keep it so: a second comparison
+// written somewhere else is how the number and the word came apart.
+
+// The needle as the detail line prints it: a whole number of cents. A half
+// rounds away from zero on both sides (5.5 is 6 and -5.5 is -6), so sharp
+// and flat are treated alike. `Math.round` alone rounds a half upwards,
+// which would make -5.5 into -5, hence the detour through the magnitude.
+//
+// A needle that rounds to nothing gives plain zero, never negative zero.
+// JavaScript has both, and `(-0.4).toFixed(0)` is the text "-0", which is
+// what the detail line used to print for a needle a hair flat.
+const wholeCents = (needleCents: number): number => {
+  const magnitude = Math.round(Math.abs(needleCents))
+
+  return needleCents < 0 && magnitude > 0 ? -magnitude : magnitude
+}
+
+// The rule itself, on the whole number from `wholeCents`.
+const isWithinInTune = (shownCents: number): boolean =>
+  Math.abs(shownCents) <= IN_TUNE_CENTS
+
+// The same rule as a place on the needle bar. A needle rounds to
+// `IN_TUNE_CENTS` or less until it reaches half a cent beyond it, so that
+// is how far either side of the middle the green zone goes (`needleView`).
+const IN_TUNE_EDGE_CENTS = IN_TUNE_CENTS + 0.5
 
 // Everything the screen needs, whichever state the tuner is in.
 // A name that starts with `maybe` holds an `Option`: that is the project's
@@ -278,7 +323,7 @@ const quietDisplay: Display = {
 //
 // Note what is worked out here and never kept in the Model: the note (from
 // the frequency and `model.a4`, so a change of A4 renames the note on the next
-// render with no extra code) and `isInTune`.
+// render with no extra code), `shownCents` and `isInTune`.
 const toDisplay = (model: Model): Display =>
   TunerState.match(model.tuner, {
     // Drawn like Off, with one difference: the power button is disabled.
@@ -298,12 +343,19 @@ const toDisplay = (model: Model): Display =>
       // `Option.map(option, f)` applies `f` to the value if there is one and
       // passes None through untouched. So "no reading" becomes "nothing
       // heard" without an `if`.
-      maybeHeard: Option.map(maybeReading, ({ frequency }) => ({
-        frequency,
-        note: noteFromFrequency(frequency, model.a4),
-        needleCents,
-        isInTune: Math.abs(needleCents) <= IN_TUNE_CENTS,
-      })),
+      // `shownCents` and `isInTune` are worked out here, once, for
+      // everything that draws from them (IN TUNE above).
+      maybeHeard: Option.map(maybeReading, ({ frequency }) => {
+        const shownCents = wholeCents(needleCents)
+
+        return {
+          frequency,
+          note: noteFromFrequency(frequency, model.a4),
+          needleCents,
+          shownCents,
+          isInTune: isWithinInTune(shownCents),
+        }
+      }),
     }),
     // The Model stores the kind of failure (refused, unsupported, unexpected)
     // and not a sentence, because `update` has to tell a refusal from a fault
@@ -315,12 +367,14 @@ const toDisplay = (model: Model): Display =>
     }),
   })
 
-// The last word of the detail line. "In tune" wins. Otherwise the sign of the
-// needle decides: above the note is sharp, below it is flat.
-const tuningWord = ({ needleCents, isInTune }: Heard): string => {
+// The last word of the detail line. "In tune" wins. Otherwise the sign of
+// the number shown decides: above the note is sharp, below it is flat. It
+// reads the same whole number the line prints, never the needle itself, so
+// the word cannot contradict the number beside it.
+const tuningWord = ({ shownCents, isInTune }: Heard): string => {
   if (isInTune) {
     return 'in tune'
-  } else if (needleCents > 0) {
+  } else if (shownCents > 0) {
     return 'sharp'
   } else {
     return 'flat'
@@ -328,12 +382,13 @@ const tuningWord = ({ needleCents, isInTune }: Heard): string => {
 }
 
 // The line under the note: the frequency, the cents and the word, joined by
-// middle dots. A negative number prints its own minus sign, so only the plus
-// has to be added.
+// middle dots. The cents are `shownCents`, already a whole number. A
+// negative number prints its own minus sign, so only the plus has to be
+// added, and zero gets neither: "0 cents".
 const detailLine = (heard: Heard): string => {
-  const sign = heard.needleCents > 0 ? '+' : ''
+  const sign = heard.shownCents > 0 ? '+' : ''
 
-  return `${heard.frequency.toFixed(1)} Hz · ${sign}${heard.needleCents.toFixed(0)} cents · ${tuningWord(heard)}`
+  return `${heard.frequency.toFixed(1)} Hz · ${sign}${heard.shownCents} cents · ${tuningWord(heard)}`
 }
 
 // Where the needle marker sits, as a CSS `left` percentage. The cents are
@@ -761,8 +816,11 @@ const noteView = (display: Display, h: HtmlBuilder<Message>): Html =>
 // is a picture of what the detail line already says in words.
 //
 // The bar is 100 cents wide (50 either side), so one per cent of its width is
-// one cent. The green zone starts at 45% and is 10% wide: the 5 cents either
-// side of centre that count as in tune (`IN_TUNE_CENTS`).
+// one cent. The green zone is every place where the needle reads in tune:
+// `IN_TUNE_EDGE_CENTS` either side of the centre, which is 5.5, so it starts
+// at 44.5% and is 11% wide. It is set with an inline style, worked out from
+// that constant, so that the picture follows the rule if the rule changes.
+// A Tailwind class could not: a class name has to be written out whole.
 // While the tuner is not listening, the track and the centre line are dimmed
 // and the zone is fully transparent.
 const needleView = (display: Display, h: HtmlBuilder<Message>): Html =>
@@ -780,9 +838,15 @@ const needleView = (display: Display, h: HtmlBuilder<Message>): Html =>
         ),
       ]),
       h.div([
+        // For the tests, like the marker's attribute below.
+        h.DataAttribute('in-tune-zone', ''),
         h.Class(
-          `absolute inset-y-0 left-[45%] w-[10%] rounded ${display.isListening ? 'bg-green-400/15' : 'bg-green-400/0'}`,
+          `absolute inset-y-0 rounded ${display.isListening ? 'bg-green-400/15' : 'bg-green-400/0'}`,
         ),
+        h.Style({
+          left: `${NEEDLE_RANGE_CENTS - IN_TUNE_EDGE_CENTS}%`,
+          width: `${2 * IN_TUNE_EDGE_CENTS}%`,
+        }),
       ]),
       // The marker exists only while a note is heard. `h.empty` is Foldkit's
       // "render nothing": it is `null`, and the builder drops it from the

@@ -690,23 +690,91 @@ describe('screen', () => {
     )
   })
 
-  // The wording of the detail line. "In tune" means within 5 cents either
-  // way, 5 included. The row for 5.6 pins a detail: the number is rounded
-  // for display ("+6"), but the word is chosen from the needle before
-  // rounding. The frequency is 440 in every row, which is fine: see
-  // `hearing` above.
+  // The wording of the detail line, away from the edge of "in tune". The
+  // frequency is 440 in every row, which is fine: see `hearing` above.
   test.each([
     [12, '440.0 Hz · +12 cents · sharp'],
     [-12, '440.0 Hz · -12 cents · flat'],
     [5, '440.0 Hz · +5 cents · in tune'],
     [-5, '440.0 Hz · -5 cents · in tune'],
-    [5.6, '440.0 Hz · +6 cents · sharp'],
     [0, '440.0 Hz · 0 cents · in tune'],
   ])('needle %d reads "%s"', (needleCents, detail) => {
     scene(
       { update, view },
       given(hearing(440, needleCents)),
       expect(text(detail)).toExist(),
+    )
+  })
+
+  // The edge of "in tune". There is one rule, and it goes by the number as
+  // shown: the needle is rounded to a whole cent, and that whole number is
+  // in tune when it is within 5 (`IN_TUNE_CENTS`). Four things on the page
+  // say "in tune", and each row checks all four together, because the
+  // fault this replaced was two of them disagreeing: a needle at 5.4 read
+  // "+5 cents · sharp".
+  //
+  //   the number   the needle rounded, halves away from zero both ways
+  //   the word     "in tune", or "sharp" or "flat" by the sign
+  //   the marker   green in tune, yellow otherwise
+  //   the chip     the lit string's border and letter, the same two colours
+  //
+  // Zero has no sign, whichever side of it the needle is: "-0 cents" was
+  // what a needle a hair flat used to print.
+  //
+  // A row is the needle, the number and word expected, and whether that is
+  // in tune. The colours are Tailwind classes, which is as far as a scene
+  // can see (the note at "the power button under a pointer" above).
+  const litChipFace = selector('[aria-current="true"] [title]')
+
+  test.each([
+    [4.4, '+4 cents · in tune', true],
+    [4.5, '+5 cents · in tune', true],
+    [5.4, '+5 cents · in tune', true],
+    [5.5, '+6 cents · sharp', false],
+    [5.6, '+6 cents · sharp', false],
+    [-0.4, '0 cents · in tune', true],
+    [0.4, '0 cents · in tune', true],
+    [-4.5, '-5 cents · in tune', true],
+    [-5.4, '-5 cents · in tune', true],
+    [-5.5, '-6 cents · flat', false],
+    [-5.6, '-6 cents · flat', false],
+  ])(
+    'needle %d reads "%s", and the colours agree',
+    (needleCents, ending, isInTune) => {
+      scene(
+        { update, view },
+        given(hearing(440, needleCents)),
+        // The whole line, so a "-0" or a stray sign cannot hide in front
+        // of a match.
+        expect(text(`440.0 Hz · ${ending}`)).toExist(),
+        isInTune
+          ? expect(needleMarker).toHaveClass('bg-green-300')
+          : expect(needleMarker).toHaveClass('bg-maximum-yellow'),
+        isInTune
+          ? expect(needleMarker).not.toHaveClass('bg-maximum-yellow')
+          : expect(needleMarker).not.toHaveClass('bg-green-300'),
+        isInTune
+          ? expect(litChipFace).toHaveClass('border-green-400')
+          : expect(litChipFace).toHaveClass('border-accent'),
+        isInTune
+          ? expect(litChipFace).toHaveClass('text-green-400')
+          : expect(litChipFace).toHaveClass('text-accent'),
+      )
+    },
+  )
+
+  // The green zone on the needle bar is the picture of the same rule. A
+  // needle reads in tune until it rounds to 6, which is at 5.5, so the zone
+  // is 5.5 cents either side of the middle: from 44.5% across, 11% wide.
+  // Drawn 5 either side, a green needle at 5.4 would sit outside it. The
+  // zone is decoration with no role or text, so the view marks it with a
+  // `data-in-tune-zone` attribute for this to find.
+  test('the green zone of the bar covers every needle that reads in tune', () => {
+    scene(
+      { update, view },
+      given(listening()),
+      expect(selector('[data-in-tune-zone]')).toHaveStyle('left', '44.5%'),
+      expect(selector('[data-in-tune-zone]')).toHaveStyle('width', '11%'),
     )
   })
 

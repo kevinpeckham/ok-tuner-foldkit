@@ -137,7 +137,10 @@ import { type Tuning } from './tuning'
 
 // A cent is a hundredth of a semitone. A needle within this many cents of the
 // note counts as in tune. It is exported for the view, which decides what to
-// show as "in tune". `update` never reads it.
+// show as "in tune". `update` never reads it. The view applies it to the
+// needle rounded to a whole cent, the number the page prints, so that the
+// number and the word always agree: the one place that does so is IN TUNE
+// in src/view.ts.
 export const IN_TUNE_CENTS = 5
 
 // A reading more than this many cents from where the needle is counts as a
