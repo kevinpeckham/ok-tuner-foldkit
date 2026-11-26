@@ -5,9 +5,11 @@
 //
 // WHY THIS FILE STARTS A RUNTIME
 //
-// Every other test here calls pure functions. A Story calls `update`, a
+// Nearly every test here calls pure functions. A Story calls `update`, a
 // Scene calls `update` and the view, and neither needs the Foldkit runtime.
-// The crash screen rests on three things only a runtime can show:
+// (The one other file that starts a runtime is `src/app.runtime.test.ts`,
+// which runs the real app.) The crash screen rests on three things only a
+// runtime can show:
 //
 //   1. the report is made once, and before the screen is drawn;
 //   2. the screen takes the place of whatever the app had drawn;
