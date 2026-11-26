@@ -301,6 +301,77 @@ describe('acquireMicrophone', () => {
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
+  // The same promise one step further on. Here the stream opens and the
+  // audio context is created, and it is the analyser that cannot be made.
+  // Two things are now open, and both must be shut before the failure is
+  // reported: the context is closed (the `Effect.onError` in `listenTo`)
+  // and the stream's tracks are stopped (the one in `acquireMicrophone`).
+  // The failure is still the one that caused it all, with the browser's
+  // name and message.
+  test('when the analyser cannot be wired, the context is closed and the stream is stopped', async () => {
+    const stop = vi.fn()
+    const close = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        getUserMedia: () => Promise.resolve({ getTracks: () => [{ stop }] }),
+      },
+    })
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        state = 'running'
+        close = close
+        createAnalyser = () => {
+          throw named('NotSupportedError', 'no analyser')
+        }
+      },
+    )
+
+    const exit = await Effect.runPromiseExit(acquireMicrophone)
+
+    expect(failureOf(exit)).toEqual(
+      Option.some(
+        MicrophoneFailure.Unexpected({
+          name: 'NotSupportedError',
+          detail: 'no analyser',
+        }),
+      ),
+    )
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  // A context that starts out suspended is asked to resume, and the browser
+  // may say no: `resume()` returns a Promise, and here it rejects. That is
+  // not a reason to give up. The context may still start by itself, so the
+  // rejection is dropped (`Effect.ignore` in `resumeIfSuspended`), the
+  // analyser is wired as usual and the handle is returned.
+  test('a context that refuses to resume is still wired and returned', async () => {
+    const connect = vi.fn()
+    const resume = vi.fn(() => Promise.reject(new Error('not allowed')))
+    const analyser = { fftSize: 0, smoothingTimeConstant: 1 }
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        getUserMedia: () => Promise.resolve({ getTracks: () => [] }),
+      },
+    })
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        state = 'suspended'
+        resume = resume
+        createAnalyser = () => analyser
+        createMediaStreamSource = () => ({ connect })
+      },
+    )
+
+    const handle = await Effect.runPromise(acquireMicrophone)
+
+    expect(resume).toHaveBeenCalledTimes(1)
+    expect(connect).toHaveBeenCalledWith(analyser)
+    expect(handle.analyser).toBe(analyser)
+  })
+
   // The successful path, step by step. The stream is asked for with echo
   // cancellation, noise suppression and automatic gain all off. The fake
   // audio context starts out `suspended`, to show that it is resumed (iOS
@@ -380,6 +451,41 @@ describe('releaseMicrophone', () => {
 
     expect(stopFirst).toHaveBeenCalledTimes(1)
     expect(stopSecond).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  // `close()` returns a Promise too, and a browser rejects it for a context
+  // that is already closed. The release must end all the same: Foldkit asks
+  // for a `release` that cannot fail, and nothing useful could be done about
+  // it (`Effect.ignore` in `closeContext`). `runPromise` would reject if the
+  // Effect failed, so the `await` is the assertion that it did not. The
+  // track was stopped first, so the microphone is off either way.
+  test('a context that will not close does not fail the release', async () => {
+    const stop = vi.fn()
+    const close = vi.fn(() => Promise.reject(new Error('already closed')))
+    const handle = await Effect.runPromise(
+      Effect.sync(() => {
+        vi.stubGlobal('navigator', {
+          mediaDevices: {
+            getUserMedia: () =>
+              Promise.resolve({ getTracks: () => [{ stop }] }),
+          },
+        })
+        vi.stubGlobal(
+          'AudioContext',
+          class {
+            state = 'running'
+            close = close
+            createAnalyser = () => ({})
+            createMediaStreamSource = () => ({ connect: vi.fn() })
+          },
+        )
+      }).pipe(Effect.andThen(acquireMicrophone)),
+    )
+
+    await Effect.runPromise(releaseMicrophone(handle))
+
+    expect(stop).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
   })
 })
