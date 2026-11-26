@@ -18,6 +18,7 @@
 // ordinary block (src/scene.test.ts, 'footer').
 import { type Html, type HtmlBuilder } from 'foldkit/html'
 
+import { COLUMN_CLASS } from './layout'
 import { type Message } from './main'
 import { LINK_CLASS, textLink } from './page/link'
 import { builtWithRouter, privacyRouter } from './route'
@@ -58,7 +59,7 @@ export const view = (h: HtmlBuilder<Message>): Html =>
     ],
     [
       h.div(
-        [h.Class('mx-auto w-full max-w-[600px]')],
+        [h.Class(COLUMN_CLASS)],
         [
           // The first row is a sentence that ends in a link. On screen the
           // link reads "Learn More". Heard on its own, in a screen reader's
