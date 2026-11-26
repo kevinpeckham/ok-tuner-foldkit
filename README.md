@@ -8,13 +8,13 @@ It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <htt
 
 - `src/pitch.ts`: pitch detection (McLeod's method) and note naming. Pure.
 - `src/tuning.ts`, `src/preferences.ts`: the tunings (guitar, bass, ukulele, mandolin and banjo, and Chromatic for anything else), and the tuning and A4 saved in `localStorage`.
-- `src/microphone.ts`: opening and closing the microphone, and reading one measurement.
+- `src/microphone.ts`: opening and closing the microphone, reading one measurement, and closing whatever is still open when the app crashes.
 - `src/main.ts`: the Model, Messages, `update`, the microphone as a managed resource, and the 50 ms readings as a subscription.
 - `src/entry.server.ts`: how the build writes each page as an HTML file. `src/entry.ts` is the browser's half, which takes that HTML over.
 - `src/route.ts`: the pages as routes: the tuner at `/`, "How to use the tuner" at `/how-to`, "Built with" at `/built-with`, "Privacy" at `/privacy`, and a not-found page.
 - `src/sentry.ts`: everything that touches the Sentry SDK. `src/instrument.ts` starts it before the rest of the app loads.
 - `src/view.ts`: what every page shares, and the tuner's face. `src/page/` holds the other pages, `src/header.ts` the brand at the top and `src/footer.ts` the footer. `src/layout.ts` holds the classes of the frame they are all drawn in.
-- `src/crash.ts`: the screen shown when the app has crashed, in place of Foldkit's own. It says the tuner has stopped and offers a link that loads the page again.
+- `src/crash.ts`: the screen shown when the app has crashed, in place of Foldkit's own. It says the tuner has stopped and offers a link that loads the page again. It also builds the hook that reports the crash and then closes the microphone, which a crashed runtime leaves open.
 - `src/analytics.ts`: counting page views on the live site. Everything that touches `@vercel/analytics`.
 - `src/site.ts`: the version and the addresses the footer and the Built With page link to.
 

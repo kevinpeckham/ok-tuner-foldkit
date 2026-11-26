@@ -32,7 +32,7 @@ What was found first. The backlog says `max-h-64` on the list does nothing, beca
 2. **A shorter row** (smaller padding per option). Seven of eleven at 270 px means a row of about 24 px to fit all: too small a target for a finger.
 3. **A cue only** (the brief's second preference): keep the list where it is and show that it scrolls. Needed anyway for a window too short on both sides, so it is added as well, see below.
 
-The cue, for a window where the list cannot fit above or below (a phone held sideways is 375 px tall, less than the list). Weighed: a scrollbar styled to stay visible, and scroll shadows. A styled scrollbar does not show on iOS, which ignores `::-webkit-scrollbar`, and the standard `scrollbar-color` does not stop macOS hiding an overlay scrollbar. Scroll shadows are drawn with background gradients in the stylesheet, need no script and no state, and show on every system: a soft edge at the top or bottom of the list wherever more options lie beyond it, and none at an end that has been reached. Chosen. It is a utility in `src/styles.css`, so the Content Security Policy (`style-src 'self'`) allows it.
+The cue, for a window where the list cannot fit above or below (a phone held sideways is 375 px tall, less than the list). Weighed: a scrollbar styled to stay visible, and scroll shadows. Whether a styled scrollbar stays visible is up to the system that draws it, and the systems in question (macOS, phones) are the ones that cannot be tried from this VM. Scroll shadows do not use the scrollbar at all. They are drawn with background gradients in the stylesheet, need no script and no state, and can be seen in headless Chrome: a soft edge at the top or bottom of the list wherever more options lie beyond it, and none at an end that has been reached. Chosen. It is a utility in `src/styles.css`, so the Content Security Policy (`style-src 'self'`) allows it.
 
 ### 2. The line under the On / Off button
 
@@ -88,3 +88,21 @@ The green zone of the needle bar was 5 cents either side. With the rule on the r
 ## Left to the builder
 
 Nothing: the builder wrote this.
+
+## Changes during the build
+
+Recorded on 2026-11-26, after the build. Where this section and the text above disagree, this section is what was built.
+
+- **The row beside the button starts at `mt-5`, not `mt-8`,** at every width. That, with `pb-3` under it, is what lets two full-width lines clear the badge without making the desktop pedal taller. The button is 11.5 px higher than it was.
+- **`closeOpenMicrophones` is called in `afterEach`** by the two test files that open a microphone. The set of open streams belongs to the module, so it outlives a test.
+- **An item was added to the backlog for the phone's taller pedal** and for the two cases that still outgrow the kept room, and one for a microphone that opens after a crash.
+
+## Checking it
+
+In headless Chrome, on the built pages served with the site's headers.
+
+- **The list.** Whole at 1366 by 768 (opens upwards, 396 of 396 px), at 1280 by 900 (downwards) and at 375 by 667 (upwards). On the build of `main` it showed 270 of 396 px at 1366 by 768. At 667 by 375 it scrolls, shows the cue, and End, Home, the arrows and Enter work.
+- **The pedal.** 399.5 px tall and the link at 606.5 px, with no line, with the waiting line and with the longest failure sentence, at 1280 px. 466.5 and 697.5 in all three at 375 px. On `main`: 398.5, 450.5, 450.5 at 1280 px, and 398.5, 470.5, 490.5 at 375 px.
+- **The crash.** After a forced crash the stream's track read `live` on the build of `main` and `ended` on this one.
+- **In tune.** A tone 5.3 cents sharp settled on "+5 cents · in tune" with a green needle and chip, and one 0.3 cents flat on "0 cents · in tune". On `main`: "+5 cents · sharp", and "-0 cents".
+- **Not checked:** a real phone, a Mac, a screen reader, Firefox, Safari.
