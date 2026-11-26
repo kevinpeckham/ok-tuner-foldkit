@@ -55,7 +55,8 @@
 //   no steps for either. A test here plays the runtime's part by sending the
 //   Message the runtime would have sent, and one group near the end calls the
 //   managed resource's functions directly (FINDINGS.md, "Story has no
-//   managed-resource steps; Scene does").
+//   managed-resource steps; Scene does"). `app.runtime.test.ts` starts a
+//   runtime and lets it do both.
 
 // `Array` and `Option` are Effect's modules, not JavaScript's built-ins, so
 // in this file the name `Array` means Effect's (`Array.makeBy`, further
@@ -86,7 +87,8 @@ import { Listbox, Popover } from '@foldkit/ui'
 // tagged unions: `Message.ClickedPower()` builds one Message and
 // `TunerState.Off()` one state of the tuner. `SavePreferences` and
 // `ReportProblem` are Command definitions: calling one with arguments builds
-// a Command.
+// a Command. `TuningListbox` is the picker's Listbox, bound to the app's
+// type of item: one story uses it to open the list.
 import {
   FocusPageHeading,
   LoadExternal,
@@ -97,6 +99,7 @@ import {
   ReportProblem,
   SavePreferences,
   TunerState,
+  TuningListbox,
   WaitBeforeSlowStartHint,
   init,
   managedResources,
@@ -1181,28 +1184,30 @@ describe('A4', () => {
         expect(next.a4Input).toBe('440')
         expect(next.a4).toBe(440)
       }),
-      // Closing this Popover returns a Command of the Popover's own,
+      // Closing this Popover returns one Command, of the Popover's own:
       // `FocusButton`, which moves the keyboard focus back to its button.
-      // Rule 1 in the header says it must be resolved. `Command.resolveAll`
-      // takes `[definition, resultMessage]` pairs, and each pair resolves
-      // one pending Command that it matches. Two things to know:
+      // Rule 1 in the header says it must be resolved.
+      // `Command.resolveAllExact` takes `[definition, resultMessage]` pairs
+      // and resolves each pending Command with its pair. Two things to
+      // know:
       //
       // 1. The result Message is the Popover's own
       //    (`Popover.Message.CompletedFocusButton()`), not wrapped in
       //    `GotA4PopoverMessage`. The Command remembers the wrapping its
       //    parent gave it, and Story applies that wrapping when it resolves.
-      // 2. A pair that matches nothing is not an error. Only `FocusButton` is
-      //    pending here. `UnlockScroll` and `RestoreInert` are returned only
-      //    by a modal Popover, and this one is created without `isModal`
-      //    (`init` in `main.ts`), so their pairs go unused. When the list
-      //    should also be a claim about what `update` returned, put
-      //    `Command.expectExact` before it or use `Command.resolveAllExact`,
-      //    which fails on an unused pair.
-      Command.resolveAll(
-        [Popover.FocusButton, Popover.Message.CompletedFocusButton()],
-        [Popover.UnlockScroll, Popover.Message.CompletedUnlockScroll()],
-        [Popover.RestoreInert, Popover.Message.CompletedRestoreInert()],
-      ),
+      // 2. The list is also a claim about what `update` returned. `Exact`
+      //    fails on a pair that matches nothing, and on a pending Command
+      //    that has no pair. The plain `Command.resolveAll` passes over an
+      //    unused pair without a word, and this test once listed two
+      //    Commands that only a modal Popover returns (`UnlockScroll`,
+      //    `RestoreInert`), which asserted nothing (FINDINGS.md,
+      //    "`Command.resolveAll` passes when a listed Command was never
+      //    returned"). This Popover is created without `isModal` (`init` in
+      //    `main.ts`), so `FocusButton` is all there is.
+      Command.resolveAllExact([
+        Popover.FocusButton,
+        Popover.Message.CompletedFocusButton(),
+      ]),
     )
   })
 })
@@ -1213,7 +1218,11 @@ describe('A4', () => {
 // `Selected` OutMessage, and `main.ts` reacts to that by storing the tuning
 // and returning a `SavePreferences` Command.
 describe('tuning', () => {
-  test('choosing a tuning from the picker applies it and saves', () => {
+  // The Listbox in these first two stories is closed: the Model comes from
+  // `init`. A closed list has nothing to close, so the selection returns
+  // one Command, the save, and `expectExact` says so: it fails if anything
+  // else is pending beside it.
+  test('a selected tuning is applied and saved', () => {
     story(
       update,
       given(listening()),
@@ -1225,23 +1234,8 @@ describe('tuning', () => {
       model(next => {
         expect(next.tuningId).toBe('bass')
       }),
-      // `Command.expectHas(...)` passes if the listed Command is among the
-      // pending ones. Unlike `expectExact` it allows others beside it, which
-      // leaves room for the Commands a Listbox returns when it closes.
-      Command.expectHas(SavePreferences({ tuningId: 'bass', a4: 440 })),
-      // The first pair resolves the save. The other three name the Listbox's
-      // closing Commands, each with the Listbox's own result Message. In
-      // this story the Listbox starts closed (the Model comes from `init`),
-      // so it has nothing to close: the save is the only pending Command and
-      // those three pairs go unused, which `resolveAll` allows. In the
-      // browser a person chooses from an open list, and closing it returns
-      // `FocusButton` as well.
-      Command.resolveAll(
-        [SavePreferences, Message.SucceededSavePreferences()],
-        [Listbox.FocusButton, Listbox.Message.CompletedFocusButton()],
-        [Listbox.UnlockScroll, Listbox.Message.CompletedUnlockScroll()],
-        [Listbox.RestoreInert, Listbox.Message.CompletedRestoreInert()],
-      ),
+      Command.expectExact(SavePreferences({ tuningId: 'bass', a4: 440 })),
+      Command.resolve(SavePreferences, Message.SucceededSavePreferences()),
     )
   })
 
@@ -1256,12 +1250,51 @@ describe('tuning', () => {
           message: Listbox.Message.SelectedItem({ item: 'drop-d' }),
         }),
       ),
-      Command.expectHas(SavePreferences({ tuningId: 'drop-d', a4: 442 })),
-      Command.resolveAll(
-        [SavePreferences, Message.SucceededSavePreferences()],
+      Command.expectExact(SavePreferences({ tuningId: 'drop-d', a4: 442 })),
+      Command.resolve(SavePreferences, Message.SucceededSavePreferences()),
+    )
+  })
+
+  // What happens in the browser: a person chooses from an open list.
+  // `TuningListbox.open` is the Listbox's own way to open from code. Like
+  // `Popover.open` above it returns the shape of an update, and `.model` is
+  // the Listbox's Model with the list open. The Command it returns with it
+  // (the one that moves focus into the list) is left behind, as with the
+  // other fixtures.
+  //
+  // Choosing now does three things. The Listbox closes and returns its
+  // `FocusButton` Command, which hands the keyboard focus back to the
+  // button. It reports `Selected` to the app, which stores the tuning. And
+  // the app returns the save. So two Commands are pending, one from each
+  // side of the parent and child line, and `expectExact` takes both: each
+  // is built from its definition, so the arguments are compared too. Then
+  // `resolveAllExact` resolves the pair, each with its own side's result
+  // Message.
+  test('choosing from the open list also closes it and hands the focus back', () => {
+    const opened = TuningListbox.open(offModel.tuningListbox)
+    const withOpenList = modifyFields(listening(), {
+      tuningListbox: () => opened.model,
+    })
+
+    story(
+      update,
+      given(withOpenList),
+      message(
+        Message.GotTuningListboxMessage({
+          message: Listbox.Message.SelectedItem({ item: 'bass' }),
+        }),
+      ),
+      model(next => {
+        expect(next.tuningId).toBe('bass')
+        expect(next.tuningListbox.isOpen).toBe(false)
+      }),
+      Command.expectExact(
+        Listbox.FocusButton({ id: 'tuning' }),
+        SavePreferences({ tuningId: 'bass', a4: 440 }),
+      ),
+      Command.resolveAllExact(
         [Listbox.FocusButton, Listbox.Message.CompletedFocusButton()],
-        [Listbox.UnlockScroll, Listbox.Message.CompletedUnlockScroll()],
-        [Listbox.RestoreInert, Listbox.Message.CompletedRestoreInert()],
+        [SavePreferences, Message.SucceededSavePreferences()],
       ),
     )
   })
@@ -1275,7 +1308,9 @@ describe('tuning', () => {
 //     Command, or the browser's back and forward buttons. This is the one
 //     place the route is set.
 // A story has no browser and no address bar, so each half is tested on its
-// own, and the tests send `ChangedUrl` by hand.
+// own, and the tests send `ChangedUrl` by hand. The two halves are joined
+// in a running app in `app.runtime.test.ts`, where a real click moves a
+// real address.
 describe('routing', () => {
   // `init` reads the address the app was opened at, so a visitor who opens
   // the how-to page directly lands on it.
