@@ -138,6 +138,7 @@ import {
   STEM_SHOVEL_URL,
   VERSION,
 } from './site'
+import { TUNINGS } from './tuning'
 import { view } from './view'
 
 // FIXTURES
@@ -730,6 +731,74 @@ describe('strings', () => {
     )
   })
 
+  // A mandolin has eight strings in four pairs, each pair tuned to one note.
+  // There is one chip for each pair, not one for each string: the tuner
+  // hears a note and cannot tell which string of a pair made it.
+  test('mandolin shows four chips, G D A E, one for each pair', () => {
+    scene(
+      { update, view },
+      given(withTuning(listening(), 'mandolin')),
+      expectAll(strings).toHaveCount(4),
+      expect(nth(strings, 0)).toHaveText('G'),
+      expect(nth(strings, 1)).toHaveText('D'),
+      expect(nth(strings, 2)).toHaveText('A'),
+      expect(nth(strings, 3)).toHaveText('E'),
+    )
+  })
+
+  // A five-string banjo in open G. Its short fifth string, the high G, comes
+  // first, as it does when a player looks down at the instrument. The row
+  // has two chips that read G and two that read D, an octave apart.
+  test('banjo shows G D G B D, the short high string first', () => {
+    scene(
+      { update, view },
+      given(withTuning(listening(), 'banjo')),
+      expectAll(strings).toHaveCount(5),
+      expect(nth(strings, 0)).toHaveText('G'),
+      expect(nth(strings, 1)).toHaveText('D'),
+      expect(nth(strings, 2)).toHaveText('G'),
+      expect(nth(strings, 3)).toHaveText('B'),
+      expect(nth(strings, 4)).toHaveText('D'),
+    )
+  })
+
+  // 392 Hz is the banjo's high G. Of the two chips that read G, only the
+  // first is lit: the one whose target is 392 Hz, not the G an octave below.
+  // `all.selector` with `toHaveCount(1)` shows that exactly one chip is lit.
+  test("the banjo's high G lights the first chip and no other", () => {
+    scene(
+      { update, view },
+      given(withTuning(hearing(392, 0), 'banjo')),
+      expectAll(
+        all.selector('[aria-label="Strings"] [aria-current]'),
+      ).toHaveCount(1),
+      expect(nth(strings, 0)).toHaveAttr('aria-current', 'true'),
+      expect(title('392.00 Hz')).toHaveText('G'),
+    )
+  })
+
+  // Each chip is a keyed element, and its key is `stringKey` from
+  // `src/tuning.ts`: the tuning's id and the string's place in the tuning.
+  // A scene sees the key, though a browser does not: it is a field of the
+  // virtual node, not an attribute of the element, and Scene's selectors
+  // read it when the attribute asked for is called `key`. The banjo's two D
+  // chips are told apart by it.
+  test('each chip is keyed by its tuning and its place in it', () => {
+    scene(
+      { update, view },
+      given(withTuning(listening(), 'banjo')),
+      expect(selector('[aria-label="Strings"] [key="banjo-0"]')).toHaveText(
+        'G',
+      ),
+      expect(selector('[aria-label="Strings"] [key="banjo-1"]')).toHaveText(
+        'D',
+      ),
+      expect(selector('[aria-label="Strings"] [key="banjo-4"]')).toHaveText(
+        'D',
+      ),
+    )
+  })
+
   // Chromatic names any note and has no strings. The whole list is left out,
   // not drawn empty, and nothing is lit even with a note sounding.
   test('chromatic shows no strings', () => {
@@ -811,6 +880,30 @@ describe('pages', () => {
       expect(role('heading', { name: 'Quick tips', level: 2 })).toExist(),
       expect(backLink).toHaveAttr('href', '/'),
       expect(powerButton).toBeAbsent(),
+    )
+  })
+
+  // The first tip names the tunings in words, and nothing but this test
+  // ties those words to the list in `src/tuning.ts`. Every label there has
+  // the form "Instrument - Tuning" except Chromatic's, which has a colon
+  // and is left out by the filter. The instrument is the part before the
+  // dash, and the page must mention each one. A tuning for an instrument
+  // the page does not name fails here until the tip is brought up to date.
+  // The pattern ignores case: the label says "Mandolin" and the tip says
+  // "mandolin".
+  // `new Set` drops the repeats (five tunings are for the guitar), and the
+  // spread turns the set back into a list for `test.each`.
+  test.each([
+    ...new Set(
+      TUNINGS.filter(tuning => tuning.label.includes(' - ')).map(tuning =>
+        tuning.label.slice(0, tuning.label.indexOf(' - ')),
+      ),
+    ),
+  ])('the how-to page names the %s', instrument => {
+    scene(
+      { update, view },
+      given(onRoute(AppRoute.HowTo())),
+      expect(text(new RegExp(instrument, 'i'))).toExist(),
     )
   })
 

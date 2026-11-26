@@ -35,6 +35,17 @@ describe('preferences', () => {
     )
   })
 
+  // The two newest tunings are saved and read back like the rest. Their ids
+  // are 'mandolin' and 'banjo': a tuning that is its instrument's usual one
+  // is named for the instrument, as 'bass' and 'ukulele' are.
+  test.each(['mandolin', 'banjo'])('a saved %s is kept', tuningId => {
+    expect(
+      preferencesFromJson(
+        Option.some(preferencesToJson({ tuningId, a4: 440 })),
+      ),
+    ).toEqual({ tuningId, a4: 440 })
+  })
+
   // This key and this exact text are what is already in people's browsers,
   // so a change to either would lose what they had saved.
   test('the saved form is plain JSON under its own key', () => {
@@ -63,7 +74,7 @@ describe('preferences', () => {
     ['null', 'null', { tuningId: 'standard', a4: 440 }],
     [
       'an unknown tuning keeps a good A4',
-      '{"tuningId":"banjo","a4":442}',
+      '{"tuningId":"sitar","a4":442}',
       { tuningId: 'standard', a4: 442 },
     ],
     [

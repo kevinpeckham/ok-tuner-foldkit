@@ -8,6 +8,25 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### A string chip is keyed by its tuning and its place, not by its note (2026-11-26, tunings)
+
+- **What was wrong.** Each chip's key was its MIDI note. That is unique in every tuning on the list, so nothing broke. But a tuning with two strings on one note would have put two chips with one key in the same row, and Foldkit's differ finds an earlier element by its key: with two alike it can patch the wrong one. It warns about a duplicate key in development only (`warnOnDuplicateKeys` in `repos/foldkit/packages/foldkit/src/snabbdom/init.ts`, behind `import.meta.hot`), so a test run and a production build say nothing.
+- **The rule it broke first.** FOLDKIT.md, "View": key by a stable identifier, never by array position, and never from displayed data. The note is what the chip displays.
+- **Fix.** `stringKey(tuning, position)` gives `banjo-0`: the tuning's id and the string's place in that tuning. A string has no id of its own, and that pair is what identifies it. The place is safe because a tuning is a constant: its strings are never added to, removed or reordered while the app runs, which is what the rule against positions is about. The place alone would not do: the first string of a guitar and the first of a bass would share a key.
+- **What it changes.** On a change of tuning every chip is now a new element, where a chip whose note was in both tunings used to be kept (seen in headless Chrome: none of the old chips survives). The chips hold no state and have no transition, so nothing shows.
+- **Not chosen.** An id written on every string in the data: each tuning would become a list of records, for ids nothing else uses.
+- **The guard.** A made-up tuning with notes 55, 55, 62, 62 must get four different keys, and so must every tuning on the list. The view cannot be handed a made-up tuning, which is why the key is a function of its own with a unit test, and a Scene test pins that the chips carry what it returns.
+- **Where.** `stringKey` in `src/tuning.ts`; `stringsView` and `stringView` in `src/view.ts`; "stringKey" in `src/tuning.test.ts`; the design is `docs/superpowers/specs/2026-11-26-more-tunings-design.md`.
+
+### A tuning follows the instrument: four chips for a mandolin, the banjo's high string first (2026-11-26, tunings)
+
+- **The mandolin.** Eight strings in four pairs, each pair tuned to one note: G3 D4 A4 E5. The tuning lists each pair once, so there are four chips. The tuner hears a note and cannot tell which string of a pair made it, and a player tunes the two one at a time against the same target. Kevin's decision.
+- **The banjo.** Five strings in open G: G4 D3 G3 B3 D4. The short fifth string is the highest and sits where a guitar's lowest would, so it is listed first, as a player reads the instrument. The ukulele's high G was already listed that way. `nearestString` takes the nearest note wherever it is in the list. Kevin's decision.
+- **The ids** are `mandolin` and `banjo`, in the style of `bass` and `ukulele`: an instrument's usual tuning is named for the instrument, and a variant takes a suffix, as `bass-5` does. An id is saved in people's browsers, so it cannot change later.
+- **The notes were checked** against the English Wikipedia articles "Mandolin" and "Banjo" on 2026-11-26. The sentences are quoted in the design.
+- **Adding one more.** The steps are in `AGENTS.md`, "Tunings".
+- **Where.** `TUNINGS` in `src/tuning.ts`.
+
 ### The tuner says what it is waiting for, by the clock (2026-11-26, microphone)
 
 - **Symptom.** While the browser's permission prompt was open, the On / Off button said "Starting…" and nothing else. Someone who had not noticed the prompt saw a tuner that seemed stuck.
@@ -276,6 +295,13 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **What happens.** `Runtime.makeApplication` takes the app's set of services from the return type of `update`. The subscription needs the microphone. Remove `MicrophoneService` from `UpdateReturn` and `src/entry.ts` stops compiling, with an error about the subscription.
 - **Where.** `UpdateReturn` in `src/main.ts`.
 
+### The open tuning list scrolls in a short window (2026-11-26, Foldkit)
+
+- **What happens.** The Listbox gives the open list whatever height is left between the button and the edge of the window, less 8 px, and lets it scroll. With eleven tunings the list wants 396 px. Measured in headless Chrome: at 1280 by 900 it opens downwards and shows whole (401 px allowed). At 375 by 667 and at 1280 by 720 it opens upwards and shows whole. At 1366 by 768 it opens downwards with 270 px, shows seven tunings, and scrolls for the other four. At 320 by 568 it has 325 px and scrolls for the last two.
+- **Can every tuning be reached.** Yes: the wheel scrolls the list, and the End key moves to the last option and brings it into view.
+- **What is not good.** Nothing says the list scrolls where the system hides scrollbars, and the newest tunings are the ones out of sight. In the backlog, under "Look".
+- **Where.** `tuningPickerView` in `src/view.ts`.
+
 ### A Listbox's open list sizes itself (2026-11-24, Foldkit)
 
 - **What happens.** The Listbox's anchoring code sets `max-height` and `overflow-y` as inline styles on the open list, which beat classes. `max-h-64` and `overflow-y-auto` on the tuning list therefore do nothing: in the browser the list was 326 px tall against the 256 px the class asks for. In the backlog.
@@ -289,6 +315,19 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **How it was checked.** The comments were added without touching code: each file, with comments stripped, was compared before and after.
 
 ## Testing
+
+### A Scene selector can read an element's key (2026-11-26, tunings)
+
+- **What happens.** A key is a field of the virtual node, not an attribute, so it is not in the page a browser shows and `toHaveAttr` cannot see it. Scene's selectors can: an attribute test on the name `key` is matched against the node's key (`matchesAttribute` in `repos/foldkit/packages/foldkit/src/test/query.ts`). So `selector('[aria-label="Strings"] [key="banjo-4"]')` finds the fifth chip of the banjo.
+- **Why it matters.** It lets a test show that the view passes on the key a function made for it, without exporting the view's parts.
+- **Where.** "each chip is keyed by its tuning and its place in it" in `src/scene.test.ts`.
+
+### An example of a value that is not on the list will one day be on it (2026-11-26, tunings)
+
+- **Symptom.** The preferences test for "an unknown tuning" used `banjo` as its unknown id. Adding the banjo would have failed that test for a reason that had nothing to do with what it checks.
+- **Fix.** It uses `sitar` now. Better still is a value that can never be added, where there is one.
+- **The other direction.** The how-to page names the tunings in words, and nothing tied the words to the list. A Scene test now takes the instrument out of every label ("Mandolin - Standard" gives "Mandolin") and looks for it on the page, so a tuning for a new instrument fails until the tip names it. It cannot tell whether a second tuning for an instrument already named is mentioned.
+- **Where.** "damaged preferences" in `src/preferences.test.ts`; "the how-to page names the" in `src/scene.test.ts`.
 
 ### A test cannot leave a timer pending, so it resolves it with a number no attempt has (2026-11-26, tuner)
 

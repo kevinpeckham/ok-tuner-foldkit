@@ -175,9 +175,15 @@ import {
 } from './route'
 // The live site's address, for each page's canonical address.
 import { SITE_ORIGIN } from './site'
-// The list of tunings, and two lookups: a tuning by its id, and the string of
-// a tuning that is nearest to a note.
-import { TUNINGS, type Tuning, nearestString, tuningById } from './tuning'
+// The list of tunings, two lookups (a tuning by its id, and the string of a
+// tuning that is nearest to a note), and the key of a string chip.
+import {
+  TUNINGS,
+  type Tuning,
+  nearestString,
+  stringKey,
+  tuningById,
+} from './tuning'
 
 // CONSTANT
 
@@ -859,11 +865,16 @@ const stringsView = (
               h.AriaLabel('Strings'),
               h.Class('mt-3 flex flex-wrap items-center justify-center gap-2'),
             ],
-            // Effect's `Array.map(array, f)`, array first.
+            // Effect's `Array.map(array, f)`, array first. Like the native
+            // `map`, it hands `f` the item's position as well, which
+            // `stringKey` needs: see `stringView`.
             // `Option.contains(option, value)` is true when the Option holds
-            // exactly that value: is this string the nearest one?
-            Array.map(notes, midi =>
+            // exactly that value: is this string the nearest one? Two
+            // strings on one note would both be lit, which is as much as a
+            // tuner can know.
+            Array.map(notes, (midi, position) =>
               stringView(
+                stringKey(tuning, position),
                 midi,
                 a4,
                 Option.contains(maybeNearestString, midi),
@@ -901,9 +912,14 @@ const stringChipTone = (isNearest: boolean, isInTune: boolean): string => {
 // identifier, and to key nothing else. Markup that comes and goes, like the
 // needle marker above, needs no key, because the build (the Foldkit Vite
 // plugin) gives the output of each view function an identity of its own.
-// The key here is the string's MIDI note number, which is unique within each
-// tuning on the list.
+//
+// The key comes from `stringKey` in src/tuning.ts: the tuning's id and the
+// string's place in that tuning, such as `banjo-0`. It is not the note. A
+// note is what the chip displays, and two strings of one tuning may be tuned
+// to the same note, which would put two chips with one key in the same row.
+// `stringKey` has the reasoning in full.
 const stringView = (
+  key: string,
   midi: number,
   a4: number,
   isNearest: boolean,
@@ -912,7 +928,7 @@ const stringView = (
   h: HtmlBuilder<Message>,
 ): Html =>
   h.keyed('li')(
-    `${midi}`,
+    key,
     [
       h.Class('rounded-[5px] border border-blue-300/10'),
       // `aria-current="true"` marks the chip nearest to the note being

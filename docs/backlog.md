@@ -14,18 +14,16 @@ Items are grouped by kind, not ranked.
 
 - **Sharp, flat and in tune are not announced.** Only the note name is in the live region, because the detail line changes twenty times a second. Find a way to announce the tuning state without flooding (announce on change of state, not of value).
 - **The tuning picker's name is only "Tuning".** Its `aria-label` replaces the button's visible text as its accessible name, so the chosen tuning is probably not announced with the control. Not checked with a screen reader.
-- **The two E strings read the same.** Give each string an accessible name that tells low E from high E (for example the octave, "E2" and "E4").
+- **The two E strings read the same.** Give each string an accessible name that tells low E from high E (for example the octave, "E2" and "E4"). The banjo's row has the same trouble twice over: two chips that read G and two that read D.
 - **Opening the A4 menu focuses the panel, not the field.** `focusSelector: '#a4-input'` on the Popover is the likely fix; unverified.
 - **The chosen tuning is nearly invisible while the tuner is off** (5% opacity, as in the original). Reconsider.
 - **Failure text contrast** is about 4.1:1 on the lower body, under the 4.5:1 target.
 
 ## Model and code
 
-- **Mandolin and banjo tunings,** added to the nine there are.
 - **"+5 cents · sharp".** The word comes from the unrounded needle and the number is rounded, so a needle at 5.4 reads "+5 cents · sharp" while 5 reads "+5 cents · in tune". Read from the code, not seen.
-- **String chips are keyed by MIDI note.** Unique in the nine tunings there are; a tuning with two strings on one note (a mandolin's paired strings, if listed singly) would give duplicate keys.
 - **`max-h-64` and `overflow-y-auto` on the tuning list do nothing.** The Listbox sets both inline. Remove the classes, or size the list the way the Listbox allows.
-- **Tuning id as a plain string.** `tuningId` is `Schema.String`, with unknown ids falling back to standard. Reconsider a literal union of the nine ids, so an invalid id cannot be represented.
+- **Tuning id as a plain string.** `tuningId` is `Schema.String`, with unknown ids falling back to standard. Reconsider a literal union of the eleven ids, so an invalid id cannot be represented.
 - **A4 field accepts decimals** such as 442.5 and forms such as "4e2". The design says steps of 1. Decide, then change `parseA4` and the test that pins 442.5.
 - **"-0 cents".** A needle between −0.5 and 0 prints "-0 cents", as the original does.
 
@@ -67,6 +65,7 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 
 - **Custom device skins for the tuner.** Other faces for the pedal, chosen by the person and remembered with the tuning and A4.
 - **A color-splash background** behind the tuner, in place of the flat dark ground.
+- **The open tuning list scrolls in a short window, with nothing to say so.** The list of eleven is 396 px tall. In a window 1366 by 768 it gets 270 px: seven tunings show, and the last four (bass five-string, ukulele, mandolin, banjo) are reached by scrolling the list, by the wheel or the End key. Where the system hides scrollbars nothing shows there is more but a half-cut row. It scrolled with nine as well. Measured in headless Chrome on 2026-11-26. Ways out: a shorter row, a list that opens upwards when there is more room above, or a visible scrollbar. The Listbox sets the list's `max-height` itself (see the `max-h-64` item under "Model and code").
 - **The pedal grows when a line appears under the On / Off button.** The "waiting for the microphone" line makes it 52 px taller at desktop width and 72 px on a phone, and the failure line does the same, so the link under the tuner moves down and back. Measured in headless Chrome on 2026-11-26. Reserving the room would make the pedal taller all the time.
 
 ## Page content

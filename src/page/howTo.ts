@@ -27,11 +27,14 @@ import { type Message } from '../main'
 import { tunerRouter } from '../route'
 import { pageHeadingAttributes, textLink } from './link'
 
-// The tips, kept as data. `view` maps them to list items.
+// The tips, kept as data. `view` maps them to list items. The first names
+// the tunings in words, so it changes when `TUNINGS` in src/tuning.ts does.
+// A test in src/scene.test.ts fails when the list has an instrument that
+// this page does not name.
 // `ReadonlyArray<string>` is the house spelling of `readonly string[]`
 // (FOLDKIT.md, "Code Style").
 const HOW_TO_TIPS: ReadonlyArray<string> = [
-  'Pick your tuning from the menu: guitar standard, drop D, a half step down, DADGAD, open G, bass, five-string bass or ukulele.',
+  'Pick your tuning from the menu: guitar standard, drop D, a half step down, DADGAD, open G, bass, five-string bass, ukulele, mandolin or five-string banjo.',
   'Choose Chromatic for any other instrument or tuning: it just names whatever it hears.',
   'The menu beside the tuning sets A4 if your band tunes to 442 Hz; the tuning and the reference pitch are remembered on this device.',
   'Play one string at a time and let it ring: the needle settles rather than jitters.',
