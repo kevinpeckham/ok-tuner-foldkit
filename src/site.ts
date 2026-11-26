@@ -1,11 +1,13 @@
 // site.ts: the facts about the site that more than one page states.
 //
 // What this file is. Plain constants: the version, and the addresses the
-// footer and the Built With page link to. Nothing from Foldkit is here.
-// They are in one file so that an address is written once, and so that the
-// tests can check a link against the same constant the view uses.
+// footer, the Built With page and the crash screen link to. Nothing from
+// Foldkit is here. They are in one file so that an address is written once,
+// and so that the tests can check a link against the same constant the view
+// uses.
 //
-// Read with: src/footer.ts and src/page/builtWith.ts, which use them.
+// Read with: src/footer.ts, src/page/builtWith.ts and src/crash.ts, which
+// use them.
 
 // The version, read from package.json. Vite and Vitest both let a JSON file
 // be imported like a module, and a named import takes one field of it, so
@@ -31,6 +33,11 @@ export const COPYRIGHT_HOLDER = 'Lightning Jar'
 
 /** The source code. */
 export const GITHUB_URL = 'https://github.com/kevinpeckham/ok-tuner-foldkit'
+
+// Where a visitor can tell us about a problem. The crash screen links to it
+// (src/crash.ts).
+/** The repository's issues page. */
+export const ISSUES_URL = `${GITHUB_URL}/issues`
 
 // The LICENSE file as GitHub shows it. The repository carries the Apache
 // License 2.0, the same as Stem Shovel, which the tuner is ported from.

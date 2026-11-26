@@ -4,6 +4,9 @@ import './instrument'
 import { Runtime } from 'foldkit'
 
 import { startAnalytics } from './analytics'
+// The crash screen. Its file exports a function called `view`, like a page,
+// so it is imported as a namespace: `Crash.view`.
+import * as Crash from './crash'
 import {
   Message,
   Model,
@@ -71,8 +74,7 @@ startAnalytics(window.location.hostname)
 // own.
 //
 // Some options are left out because this app has no use for them, among
-// them `resources` (services that live as long as the app does) and
-// `crash.view` (a crash screen of its own, in place of Foldkit's default).
+// them `resources` (services that live as long as the app does).
 const application = Runtime.makeApplication({
   // The Schema of the Model. The runtime uses it in development, to save the
   // Model before a reload and to restore it afterwards.
@@ -117,12 +119,21 @@ const application = Runtime.makeApplication({
   // `update`, in the view, in a Command, in a subscription or in a managed
   // resource's lifecycle. It stops the app and shows a crash screen, so the
   // error never reaches `window.onerror` and Sentry's own handlers never see
-  // it. `report` is the way out: the runtime calls it, before it draws the
-  // crash screen, with the error, the Model as it was, and the Message being
-  // handled if there was one. `reportCrash` (src/sentry.ts) sends all three
-  // to Sentry (FINDINGS.md, "Foldkit catches crashes itself, so Sentry's own
-  // handlers never see them").
-  crash: { report: reportCrash },
+  // it. The runtime calls both functions with the same thing: the error, the
+  // Model as it was, and the Message being handled if there was one.
+  //   report  called first, before anything is drawn. `reportCrash`
+  //           (src/sentry.ts) sends all three to Sentry (FINDINGS.md,
+  //           "Foldkit catches crashes itself, so Sentry's own handlers
+  //           never see them").
+  //   view    called next, to draw the crash screen in place of the page.
+  //           Without it Foldkit draws its own, which shows the error and is
+  //           written for a developer. `Crash.view` (src/crash.ts) is for a
+  //           visitor: it says the tuner has stopped and offers a link that
+  //           loads the page again. If it were ever to throw, Foldkit would
+  //           fall back to its own screen.
+  // The two are independent: the screen says nothing about the report, and
+  // the report is made whether or not the screen can be drawn.
+  crash: { view: Crash.view, report: reportCrash },
   // The Foldkit DevTools: a panel that lists every Message as it happens,
   // with the Model after it and the Commands `update` returned for it, and
   // that can show the page as it was at an earlier Message. With no `show`

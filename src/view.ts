@@ -133,6 +133,10 @@ import * as Footer from './footer'
 import * as Header from './header'
 // The four icons. Each is a function from a class name to an inline SVG.
 import * as Icon from './icon'
+// The classes of the frame every screen is drawn in: the page ground, the
+// `<main>` and the centred column. The crash screen (src/crash.ts) reads the
+// same three, so it looks like the site without calling this file.
+import { COLUMN_CLASS, MAIN_CLASS, PAGE_CLASS } from './layout'
 // From main.ts: the `Model` this file reads, the `Message` constructors it
 // attaches to elements, `TunerState` (the tagged union for booting, off,
 // starting, listening and failed) and `TuningListbox` (the Listbox bound to our
@@ -454,7 +458,12 @@ export const canonicalOf = (route: AppRoute): Option.Option<string> =>
 //
 // The outer `<div>` is a column as tall as the window (`flex min-h-screen
 // flex-col`), and the `<main>` takes whatever height the footer leaves
-// (`flex-1`), so the footer sits at the bottom of a short page.
+// (`flex-1`), so the footer sits at the bottom of a short page. Those
+// classes are the three constants of src/layout.ts.
+//
+// `Header.view([], h)`: the first argument is extra attributes for the
+// brand link. A page needs none. The crash screen passes one
+// (src/header.ts).
 //
 // Composition is a function call. There are no components to register and
 // no props objects: a page, or a part of one, is a function that returns
@@ -471,14 +480,14 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
     onSome: canonical => ({ canonical }),
   }),
   body: h.div(
-    [h.Class('flex min-h-screen flex-col bg-oxford-dark text-slate-100')],
+    [h.Class(PAGE_CLASS)],
     [
-      Header.view(h),
+      Header.view([], h),
       h.main(
-        [h.Class('flex-1 px-6 pb-12')],
+        [h.Class(MAIN_CLASS)],
         [
           h.div(
-            [h.Class('mx-auto w-full max-w-[600px]')],
+            [h.Class(COLUMN_CLASS)],
             [
               AppRoute.match(model.route, {
                 Tuner: () => tunerPageView(model, h),

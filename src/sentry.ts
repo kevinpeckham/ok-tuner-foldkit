@@ -11,7 +11,8 @@
 //
 //   1. A crash inside the Foldkit runtime. The runtime itself catches an
 //      error thrown in `update`, in the view, in a Command, in a Subscription
-//      or in a managed resource's lifecycle, and shows its crash screen.
+//      or in a managed resource's lifecycle, and shows the crash screen
+//      (src/crash.ts).
 //      Nothing reaches the browser's global error handlers, so Sentry's own
 //      handlers never see it. Foldkit's hook for this case is the
 //      `crash: { report }` option of `Runtime.makeApplication`, and

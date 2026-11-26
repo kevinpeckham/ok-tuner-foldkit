@@ -8,6 +8,17 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### The crash screen is written for a visitor, and announced as an alert (2026-11-26, crash screen)
+
+- **What it replaces.** Foldkit's default crash screen: a white card headed "Application Crash" with the error's message, a pointer to the browser console and a note on how to customise it. It is written for whoever is building the app.
+- **What it says.** That the tuner has stopped, and that reloading the page starts it again. One link reloads, one goes to the repository's issues page. No error text, no stack and no Model: Foldkit still logs the error to the console, and the report still goes to Sentry.
+- **What it does not say.** That the problem was reported. A report is sent only from the live hosts, and a visitor's browser may block it, so the screen cannot know (Kevin, 2026-11-26).
+- **Why an alert and not focus.** A change of page moves focus to the page's heading with a Command. After a crash no Command runs, a view may not touch the DOM, `autofocus` on an inserted element is honoured only while nothing in the page has been focused (seen in Chrome: it took focus on an untouched page and not after a link had been focused), and the Content Security Policy refuses an inline script. `role="alert"` on the heading and the sentence needs none of those: an alert inserted with its text is announced. Seen in headless Chrome: the alert arrives as a new element, not as an old one given a new role. Not checked with a screen reader.
+- **Why the reload control is a link.** A button needs either an inline handler, which the policy refuses, or a form, which works but leaves a `?` on the address and replaces a query string. A link to the page's own address is announced as a link, which is what it is.
+- **Why there is no footer.** Each of its links would need the `target` described under "A plain link does nothing after a crash", and none is what someone whose tuner has just stopped is after. The version is shown on its own, for someone who writes to us.
+- **Why the frame's classes moved to `src/layout.ts`.** The crash screen must look like the site without calling the app's `view`, which may be what threw, and must not fall behind when the look changes. The page ground, the `<main>` and the column are stated once and read by `view`, the header, the footer and the crash screen.
+- **Where.** `src/crash.ts`; `crash` in `src/entry.ts`; `src/layout.ts`; the design is `docs/superpowers/specs/2026-11-26-crash-screen-design.md`.
+
 ### A string chip is keyed by its tuning and its place, not by its note (2026-11-26, tunings)
 
 - **What was wrong.** Each chip's key was its MIDI note. That is unique in every tuning on the list, so nothing broke. But a tuning with two strings on one note would have put two chips with one key in the same row, and Foldkit's differ finds an earlier element by its key: with two alike it can patch the wrong one. It warns about a duplicate key in development only (`warnOnDuplicateKeys` in `repos/foldkit/packages/foldkit/src/snabbdom/init.ts`, behind `import.meta.hot`), so a test run and a production build say nothing.
@@ -172,6 +183,33 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Foldkit and Effect
 
+### A plain link does nothing after a crash (2026-11-26, Foldkit)
+
+- **Symptom.** On a crashed page, a click on an ordinary `<a href>` did nothing at all: not a link to another page of the site, not a link to the page's own address, not a link to another site. Seen in headless Chrome, with links added to a crashed page by hand.
+- **Cause.** With routing on, the runtime listens for clicks on links across the document, calls `preventDefault()` and sends a Message in the link's place (`addLinkClickListener` in `repos/foldkit/packages/foldkit/src/runtime/browserListeners.ts`). A crash sets a flag that makes the message queue drop every Message (`messageQueue.ts`), and removes nothing: the listener stays. So the browser is told not to follow the link, and the Message that should have replaced the click is thrown away.
+- **Fix.** `target="_top"` on every link of the crash screen. The listener leaves alone a link whose `target` is anything but `_self` (and a click with a modifier key or another button, and a `download` link). The site is never framed (`frame-ancestors 'none'`), so the top-level window is the visitor's own tab, and the link behaves as a plain one would on a page with no Foldkit.
+- **An empty `href` is "this page".** `href=""` resolves to the page's own address with its query and without its fragment, so the reload link needs to know nothing about where it is. Seen: from `/?a=1#frag` the browser requested `/?a=1` and a working tuner came back.
+- **What Foldkit says about it.** Its type for the crash option notes that no handler can be written and says to "reload or navigate with a raw DOM attribute instead" (`CrashConfig` in `crashUI.ts`). It does not mention that a plain link is cancelled.
+- **Only Chrome was tried.** That following a link to the address you are at loads the page again is the HTML standard's behaviour, not checked here in Firefox or Safari.
+- **Where.** `browserHandled` in `src/crash.ts`; `brandLinkAttributes` in `src/header.ts`; "after the crash" in `src/crash.runtime.test.ts`.
+
+### Foldkit's own Reload button is refused by the Content Security Policy (2026-11-26, Foldkit)
+
+- **Symptom.** On Foldkit's default crash screen, pressing Reload did nothing. Seen in headless Chrome against a build served with the site's headers: no page was requested.
+- **Cause.** The default screen, and Foldkit's `crash-view` example, reload with an inline handler, `h.Attribute('onclick', 'location.reload()')`. `script-src 'self'` refuses inline event handlers.
+- **What it means.** Under the policy, which dates from 2026-11-25, a visitor whose tuner crashed had a button that did nothing, until this change. And it still matters: if our own crash view ever throws, Foldkit falls back to its default screen, with that button.
+- **Where.** `defaultCrashView` in `repos/foldkit/packages/foldkit/src/runtime/crashUI.ts`; `headers` in `vercel.json`.
+
+### What a crash view is given, and what the runtime does with it (2026-11-26, Foldkit)
+
+- **The arguments.** `crash.view(context, h)`. The context is `{ error, model, message }`: always an `Error` (anything else thrown is wrapped in one), the Model as it was, and an `Option` of the Message being handled. `h` is an `HtmlBuilder<never>`, so an event handler does not compile. A view written for `HtmlBuilder<Message>` does not accept it, which is why `Header.view` became generic.
+- **The order.** The runtime logs the error to the console, calls `crash.report`, then `crash.view`, then patches the result where the app's page was. A `report` that throws is caught and logged. A `view` that throws is caught too, and the default screen is drawn in its place. The first crash wins: a second is ignored.
+- **The document.** The crash Document's `title` is written to `document.title`. A `lang` that is left out is left as the page has it. A `canonical` that is left out goes back to the one the file was served with. Seen: `lang="en"` and the home page's canonical address were still there after a crash.
+- **A prerendered page** makes no difference: by the time anything can crash the runtime has taken the server-drawn root over, and the crash screen is patched in like any render. The build draws none of it. A crash during the takeover's own first render was not tried.
+- **A throw in a Subscription is a crash,** with no Message: its stream is run under `Effect.catchCause(cause => crashWith(cause, Option.none()))` (`subscriptionFibers.ts`).
+- **The microphone stays open.** Nothing closes a managed resource when the runtime crashes: after a crash while listening, the stream's track was still `live`, so the browser goes on showing its microphone indicator until the page is reloaded. In the backlog.
+- **Where.** `repos/foldkit/packages/foldkit/src/runtime/crashUI.ts` and `renderer.ts` (`crashWith`); `src/crash.ts`.
+
 ### A disabled Button still looks pressable unless the classes say otherwise (2026-11-26, Foldkit)
 
 - **Symptom.** While the tuner was starting, the On / Off button was disabled and still showed the pointing hand and changed colour under the pointer.
@@ -248,8 +286,9 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ### Foldkit catches crashes itself, so Sentry's own handlers never see them (2026-11-24, Sentry)
 
-- **What happens.** The runtime catches an error thrown in `update`, in the view, in a Command, in a Subscription or in a managed resource's lifecycle, and shows its crash screen. Nothing reaches `window.onerror`.
+- **What happens.** The runtime catches an error thrown in `update`, in the view, in a Command, in a Subscription or in a managed resource's lifecycle, and shows a crash screen. Nothing reaches `window.onerror`.
 - **What to do.** The `crash: { report }` option of `Runtime.makeApplication` is the only route for those. Sentry's global handlers still cover what is thrown outside the runtime.
+- **Since 2026-11-26** the crash screen is the app's own (`src/crash.ts`), given as `crash.view` beside `report`. The report is unchanged and still comes first.
 - **Where.** `src/entry.ts`, `reportCrash` in `src/sentry.ts`.
 
 ### Sentry must start before any other module is evaluated (2026-11-24, Sentry)
@@ -315,6 +354,24 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **How it was checked.** The comments were added without touching code: each file, with comments stripped, was compared before and after.
 
 ## Testing
+
+### A crash is forced in the real page from outside the app (2026-11-26, crash screen)
+
+- **How.** In headless Chrome, with the fake microphone and the tuner listening, a script replaces `AnalyserNode.prototype.getFloatTimeDomainData` with a function that throws. The next reading throws inside the readings Subscription, and the runtime crashes within a twentieth of a second. No bug is shipped to make it possible.
+- **What it checks.** The screen and its words, the title, the alert, that nothing of the error is on the page, the three links and that each one loads its page (the reload by keyboard and by click), a working tuner after the reload, no Content Security Policy violation and no console error but the crash itself, and the fit at 375 px.
+- **What it cannot check on `localhost`.** The report to Sentry: only the live hosts report. Run against the live site it does send one, titled by the script's own error text. Resolve it afterwards.
+- **Only from the tuner's page.** The other pages have no Subscription running to throw in. The screen and its links do not depend on the page.
+- **Where.** The script was session scratch (`crash.ts` in the smoke folder), like the others (see "Checking the real page in headless Chrome, with and without a microphone").
+
+### A crash view drops into a Scene, and a runtime can be started in a test (2026-11-26, crash screen)
+
+- **The Scene.** A crash view is `(context, h) => Document`, the shape of an app's view. `scene({ update, view })` takes it with the crash context as the Model and `never` as the Message: `given(context)`, then the usual locators. The `update` it asks for can never be called. A scene can look and cannot click, which fits a screen that sends no Message.
+- **The title** is read from what the view returns, called with `inertHtml` from `foldkit/html`: the builder for code with none in scope, and an `HtmlBuilder<never>` like the one a crash view is passed.
+- **The runtime.** What a click does after a crash is the runtime's doing, so `src/crash.runtime.test.ts` starts one, the first test here to do so: `Effect.runFork(application.start())`, a small app with routing whose `update` throws, and `Fiber.interrupt` afterwards. Foldkit tests its own crash screen this way. Eight tests take about a tenth of a second.
+- **The container needs an id.** Without one the runtime dies at start with "Runtime container must have an `id` for Model preservation across reloads", and the page stays empty with nothing in the test's output. `fiber.addObserver` showed it.
+- **Reading whether a click was cancelled.** A listener on `window` runs after the runtime's on `document`, reads `event.defaultPrevented`, and then cancels the click itself so that happy-dom does not try to load the address.
+- **What it pins.** One report, made before the screen is drawn. The screen in place of the app, and not the default one. A plain link cancelled before the crash and still cancelled after it. Each link of the crash screen left to the browser. Removing the `target` from the reload link fails three tests.
+- **Where.** `src/crash.scene.test.ts`, `src/crash.runtime.test.ts`.
 
 ### A Scene selector can read an element's key (2026-11-26, tunings)
 

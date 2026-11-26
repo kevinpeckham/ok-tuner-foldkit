@@ -13,7 +13,8 @@ It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <htt
 - `src/entry.server.ts`: how the build writes each page as an HTML file. `src/entry.ts` is the browser's half, which takes that HTML over.
 - `src/route.ts`: the pages as routes: the tuner at `/`, "How to use the tuner" at `/how-to`, "Built with" at `/built-with`, "Privacy" at `/privacy`, and a not-found page.
 - `src/sentry.ts`: everything that touches the Sentry SDK. `src/instrument.ts` starts it before the rest of the app loads.
-- `src/view.ts`: what every page shares, and the tuner's face. `src/page/` holds the other pages, `src/header.ts` the brand at the top and `src/footer.ts` the footer.
+- `src/view.ts`: what every page shares, and the tuner's face. `src/page/` holds the other pages, `src/header.ts` the brand at the top and `src/footer.ts` the footer. `src/layout.ts` holds the classes of the frame they are all drawn in.
+- `src/crash.ts`: the screen shown when the app has crashed, in place of Foldkit's own. It says the tuner has stopped and offers a link that loads the page again.
 - `src/analytics.ts`: counting page views on the live site. Everything that touches `@vercel/analytics`.
 - `src/site.ts`: the version and the addresses the footer and the Built With page link to.
 
@@ -29,7 +30,8 @@ The source is commented for someone learning Foldkit: each file opens with what 
 4. `src/view.ts`, then `src/page/`: how the Model becomes the page, and how the page sends Messages.
 5. `src/story.test.ts` and `src/scene.test.ts`: how `update` and the view are tested.
 6. `src/microphone.ts`, `src/pitch.ts`, `src/tuning.ts`, `src/preferences.ts`, `src/sentry.ts`: the parts Foldkit calls into.
-7. `vite.config.ts`, `.env.schema`: the build.
+7. `src/crash.ts`: what Foldkit does when the app crashes, and what still works on a page whose runtime has stopped. `src/crash.runtime.test.ts` shows it with a runtime that really crashes.
+8. `vite.config.ts`, `.env.schema`: the build.
 
 [`FOLDKIT.md`](./FOLDKIT.md) is Foldkit's own guide to the architecture and its conventions.
 
@@ -74,7 +76,7 @@ The live site counts page views with [Vercel Web Analytics](https://vercel.com/d
 
 Errors go to [Sentry](https://sentry.io), and nothing else goes there:
 
-- A crash (through Foldkit's `crash.report` hook) and any uncaught error.
+- A crash (through Foldkit's `crash.report` hook) and any uncaught error. The visitor is shown the crash screen (`src/crash.ts`), which says nothing about the report: it cannot know whether one was sent.
 - A microphone that fails to open for a reason the app does not know. `update` returns a `ReportProblem` Command for it. A refused permission, an unsupported browser, no microphone, a microphone in use elsewhere, and a microphone unplugged mid-session are not reported: each gets a plain sentence on the page.
 
 A visit where nothing goes wrong sends Sentry nothing. There is no session tracking, tracing or replay, no cookies or user identifiers, and the SDK is told not to record the IP address. Refusing the microphone and blocking site storage are choices, not errors, and are not reported.

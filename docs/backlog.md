@@ -9,6 +9,7 @@ Items are grouped by kind, not ranked.
 - **Start listening when the pointer enters the page.** Agreed during design, to follow the basics.
 - **Pitch detection off the main thread.** `detectPitch` runs on the main thread every 50 ms. Weigh an `AudioWorklet` or a Web Worker: the gain is a steadier needle on slow phones, the cost is a second build entry and message passing. Measure on a slow phone before deciding.
 - **Development only:** a hot reload that restores "on" may leave the audio context suspended until a click.
+- **The microphone stays open after a crash.** Foldkit closes no managed resource when the runtime crashes, so after a crash while listening the stream's track is still live and the browser goes on showing its microphone indicator, under a screen that says the tuner has stopped. Reloading the page ends it. Seen in headless Chrome on 2026-11-26 (`FINDINGS.md`, "What a crash view is given, and what the runtime does with it"). The crash hooks are handed the Model, not the microphone, so closing it means keeping a way to reach the stream from outside the runtime.
 
 ## Screen readers and keyboard
 
@@ -71,7 +72,6 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 ## Page content
 
 - **Ad-free and tracker-free, in the title.** Update the page title to say so.
-- **A custom crash screen** in place of Foldkit's default, which is written for developers.
 - **A microphone error whose message is only spaces** shows an empty alert. Fall back to the plain sentence.
 - **Font.** The system font is fine for now; may be revisited.
 
