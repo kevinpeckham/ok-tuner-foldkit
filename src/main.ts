@@ -482,8 +482,8 @@ export const init: Runtime.RoutingApplicationInit<Model, Message> = url => ({
 // A Command must not fail. The types insist on part of it: `update` may only
 // return Commands whose Effect has no typed failure left in it. A defect
 // that still escaped would count as a crash, and the runtime would replace
-// the page with its crash screen. So each `execute` ends by catching
-// everything and turning it into a Message.
+// the page with the crash screen (src/crash.ts). So each `execute` ends by
+// catching everything and turning it into a Message.
 
 // NOTE: with site data blocked, reading `localStorage` throws while the
 // storage layer is being built, outside the typed error channel. Both
