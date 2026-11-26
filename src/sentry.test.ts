@@ -11,11 +11,12 @@
 // `initSentry`: `enabled: true` and two recorders (FINDINGS.md, "Testing
 // Sentry without the network"):
 //
-// - a `transport` that keeps every envelope the SDK would have sent. The
-//   contents of an envelope are untyped, so it is used only to answer "was
-//   anything sent, and how many".
+// - a `transport` that keeps every envelope the SDK would have sent. It
+//   answers "was anything sent, and how many". One group, "what is put on
+//   the wire", also reads inside an envelope, for the one thing the SDK
+//   adds after the hook below has run.
 // - a `beforeSend` hook that keeps each event. The SDK hands it a typed
-//   event, so the assertions read from there.
+//   event, so nearly all the assertions read from there.
 //
 // What these tests cannot show is what Sentry does with a report once it
 // arrives: how it titles and groups an issue, whether source maps resolve,
@@ -25,7 +26,7 @@
 // `Effect.runPromise` (used at the end of the file) runs an Effect and
 // returns a Promise of its result. `Option` is Effect's type for a value
 // that may be missing: `Option.some(value)` or `Option.none()`.
-import { Effect, Option } from 'effect'
+import { Effect, Option, Predicate } from 'effect'
 import { modifyFields } from 'foldkit/struct'
 import { fromString } from 'foldkit/url'
 import { afterEach, describe, expect, test, vi } from 'vitest'
@@ -91,6 +92,31 @@ const unreachableTransport =
   (send: Transport['send']): TransportFactory =>
   () => ({ send, flush: () => Promise.resolve(true) })
 
+// ENVELOPE
+//
+// An envelope is what the SDK hands the transport: a header, then a list of
+// items, each of them a small header of its own and a payload. For a report
+// there is one item, and its payload is the event.
+//
+//   [ envelope header, [ [ item header, payload ], ... ] ]
+//
+// The SDK types a payload as any of the many things an envelope can carry,
+// so a test cannot read a field off it by name, and the lint allows no type
+// assertion. `dig` reads it as plain data: it follows a path of keys and
+// indexes, and gives `undefined` as soon as a step is missing.
+// `Predicate.hasProperty` is Effect's type guard for "an object with this
+// key", and an index is a key of an array like any other.
+const dig = (value: unknown, path: ReadonlyArray<string | number>): unknown =>
+  path.reduce<unknown>(
+    (current, key) =>
+      Predicate.hasProperty(current, key) ? current[key] : undefined,
+    value,
+  )
+
+// Where the first item of an envelope keeps its two halves.
+const FIRST_ITEM_HEADER = [1, 0, 0]
+const FIRST_ITEM_PAYLOAD = [1, 0, 1]
+
 // STORAGE
 
 // The same imitation of blocked site data as in `storage.test.ts`, here for
@@ -115,7 +141,10 @@ const blockStorage = (): void => {
 
 // After each test, working storage is put back and `Sentry.close()` shuts
 // the SDK down, so the next test starts its own with its own recorders.
+// `vi.restoreAllMocks()` takes back the one method a test replaces: it is on
+// the SDK's current scope, which outlives `close()`.
 afterEach(async () => {
+  vi.restoreAllMocks()
   workingStorages.forEach(([name, descriptor]) => {
     if (descriptor !== undefined) {
       Object.defineProperty(globalThis, name, descriptor)
@@ -250,14 +279,50 @@ describe('initSentry', () => {
 
   // Reporting is an extra. If the SDK cannot start, the tuner must still
   // start, which is why `initSentry` wraps the SDK's own start in a
-  // try/catch. These two tests give it a browser with site data blocked, a
-  // malformed address and an integration that throws.
+  // try/catch. These three tests give it a browser with site data blocked,
+  // an SDK that reads site data as it starts, a malformed address and an
+  // integration that throws.
+  //
+  // NOTE: this first test cannot fail today, with or without the `try`. The
+  // installed SDK (11.14.0) does not touch site storage when it starts with
+  // our options: the only code in it that does belongs to browser tracing,
+  // which is not installed. The test is kept as a guard for a later version
+  // that might, and the test after it is what proves the `try` now.
+  // `enabled: true` is needed for either to mean anything: on `localhost`
+  // reporting is off, and an SDK that is off sets up no integration at all.
   test('blocked site storage does not stop start-up', () => {
     blockStorage()
     const sent: Array<Envelope> = []
 
     expect(() =>
-      initSentry({ transport: recordingTransport(sent) }),
+      initSentry({ enabled: true, transport: recordingTransport(sent) }),
+    ).not.toThrow()
+  })
+
+  // The stand-in for that later version: an integration that reads
+  // `sessionStorage` while the SDK sets it up, which is the moment
+  // `Sentry.init` is still running. With site data blocked the read throws,
+  // and the first assertion shows that it does, so the test cannot pass
+  // because the stand-in has stopped biting. `integrations` is given the
+  // SDK's defaults and returns them with one more. Remove the `try` from
+  // `initSentry` and this test fails.
+  test('an SDK that read blocked storage as it started would not stop start-up either', () => {
+    const readStorage = (): void => {
+      window.sessionStorage.getItem('anything')
+    }
+    blockStorage()
+    const sent: Array<Envelope> = []
+
+    expect(readStorage).toThrow('The operation is insecure.')
+    expect(() =>
+      initSentry({
+        enabled: true,
+        transport: recordingTransport(sent),
+        integrations: defaults => [
+          ...defaults,
+          { name: 'ReadsStorage', setup: readStorage },
+        ],
+      }),
     ).not.toThrow()
   })
 
@@ -293,6 +358,64 @@ describe('a host that is not ours', () => {
     expect(window.location.hostname).toBe('localhost')
     expect(sent).toHaveLength(0)
   })
+})
+
+// The Privacy page says Sentry does not store an IP address. The app's part
+// of that promise is one option, `dataCollection.userInfo: false`, pinned
+// above in 'sentryOptions'. This group pins what the option does to a
+// report, by reading the envelope the SDK hands the transport.
+//
+// With `userInfo` off the SDK marks each report `infer_ip: 'never'`, which
+// tells Sentry not to work the visitor's address out from the connection
+// the report arrived on. For an error the mark is inside the event, at
+// `sdk.settings.infer_ip`. The SDK writes it there while it builds the
+// envelope, which is after `beforeSend` has run: the event the hook is
+// handed does not have it yet. (The object that `startRecording` kept does
+// gain it later, because the SDK goes on writing to the event it was given
+// back. That is a side effect. What was sent is what the transport was
+// given, so that is what is read.) The envelope's own header carries the
+// SDK's name and version, and not its settings.
+//
+// Both kinds of report are checked, since both go out through the same
+// client. What this still cannot show is what Sentry then stores: that was
+// checked against the service (FINDINGS.md, "Sentry attaches a location
+// even when it stores no IP address").
+describe('what is put on the wire', () => {
+  test.each([
+    [
+      'a crash',
+      (): void => {
+        reportCrash({
+          error: new Error('boom'),
+          model: { tuningId: 'standard' },
+          message: Option.none(),
+        })
+      },
+    ],
+    [
+      'a microphone problem',
+      (): void => {
+        reportMicrophoneProblem({ name: 'AbortError', detail: 'busy' })
+      },
+    ],
+  ])(
+    '%s is marked so that Sentry does not infer the IP address',
+    async (_name, report) => {
+      const { sent } = startRecording()
+
+      report()
+      await Sentry.flush()
+
+      expect(sent).toHaveLength(1)
+      // The one item is the event, and the mark is in it.
+      expect(dig(sent[0], FIRST_ITEM_HEADER)).toEqual({ type: 'event' })
+      expect(dig(sent[0], [...FIRST_ITEM_PAYLOAD, 'sdk', 'settings'])).toEqual({
+        infer_ip: 'never',
+      })
+      // And the event names no user, which is where an address would go.
+      expect(dig(sent[0], [...FIRST_ITEM_PAYLOAD, 'user'])).toBeUndefined()
+    },
+  )
 })
 
 // `reportCrash` is the function `entry.ts` gives to Foldkit as
@@ -485,5 +608,33 @@ describe('ReportProblem', () => {
 
     expect(result).toEqual(Message.CompletedReportProblem())
     expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  // The Command's own safety net: its `Effect.catchCause`. The test above
+  // does not reach it, because the SDK swallows a failed send by itself.
+  // This one makes the report throw where the Command calls it.
+  //
+  // The SDK's `captureException` cannot be replaced: it is an export of an
+  // ES module, and Vitest refuses to spy on one. What it does is call
+  // `captureException` on the SDK's current scope, an ordinary object, and
+  // that method can be replaced. So the real `reportMicrophoneProblem` runs
+  // and throws. The first assertion shows that it does: if a later SDK
+  // stopped going through the scope, the test would fail there and not
+  // pass with nothing thrown.
+  //
+  // A defect that escaped a Command would crash the app (`src/main.ts`,
+  // COMMAND), so the Command must still end with its Message.
+  test('completes when the report itself throws', async () => {
+    startRecording()
+    vi.spyOn(Sentry.getCurrentScope(), 'captureException').mockImplementation(
+      () => {
+        throw new Error('the SDK broke')
+      },
+    )
+
+    expect(() => reportMicrophoneProblem(problem)).toThrow('the SDK broke')
+    const result = await Effect.runPromise(ReportProblem(problem).effect)
+
+    expect(result).toEqual(Message.CompletedReportProblem())
   })
 })
