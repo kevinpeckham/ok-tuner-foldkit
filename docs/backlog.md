@@ -43,14 +43,15 @@ Items are grouped by kind, not ranked.
 ## Error reporting
 
 - **Errors thrown by browser extensions are reported.** Sentry has an inbound filter for the common ones (a project setting), and the SDK has `allowUrls` to accept only errors from our own files. Wait until Sentry shows the noise is real.
-- **Bundle size.** Sentry took the script from 398 kB to 491 kB (159 kB compressed). The Vite plugin's `bundleSizeOptimizations` may trim it. Measure before and after.
+- **Bundle size.** The script is 512 kB (166 kB compressed), and Sentry is 91 kB of it, 18%. Measured on 2026-11-26: the SDK's switches trim 5.45 kB, 1%, and were left alone (`FINDINGS.md`, "What the SDK's size switches save, and where they work"). The one that does nearly all of it is `define: { __SENTRY_DEBUG__: false }` in `vite.config.ts`, not the plugin's `bundleSizeOptimizations`, which reaches only the build that uploads. Anything bigger means loading Sentry after the tuner or doing without part of it, which is a decision and not a setting. Three fifths of the script is Effect and Foldkit (`FINDINGS.md`, "Where the script's bytes are").
 - **`vite.config.ts` is not type-checked or linted.** Typecheck and lint cover `src` only.
 - **Switch off the rest of the SDK's data categories.** Five are off, the ones that carry a visitor's data. The others gate integrations this app does not install and are left on by default. Setting them off too makes "nothing is collected" hold whatever is installed later; the test named "switches off every data-collection category" would then be true to its name.
 - **The Sentry plan is out of date.** `docs/superpowers/plans/2026-11-24-sentry.md` still describes sending a message and plugin 11.14.0. The design's "Changes during the build" is right. Mark the plan as superseded or correct it.
 
 ## Build
 
-- **Limit Tailwind's scan to `src`.** It reads comments and documents too, and turns ordinary words into unused rules (see `FINDINGS.md`).
+- **Tailwind still reads the comments in `src`.** The scan is limited to `src` since 2026-11-26, so documents no longer add rules. Comments and tests under `src` still do: ten unused rules (`.hidden`, `.static`, `.table` and others) are in the built stylesheet (see `FINDINGS.md`). Ending it means naming the files that hold classes (`source(none)` and `@source` lines), and then a class written in a file that is not named would silently get no rule.
+- **A missing file under `/assets/` is probably cacheable for a year.** The rule in `vercel.json` that lets a browser keep a hashed file fits any address under `/assets/`, and Vercel applies a rule to a 404 as well (the live 404 carries the Content Security Policy). To check on the live site: the browser check prints the `Cache-Control` of a missing file (`FINDINGS.md`, "Hashed files are kept for a year"). If it says `immutable`, a browser that asked for a script that was gone would keep that answer, which matters only if a rollback brings the same file name back. `vercel.json` has no condition for "the file exists".
 
 ## Pages and routing
 
@@ -58,7 +59,7 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 
 - **With the tuning list open, the first click on the how-to link only closes the list.** It is the Listbox's outside-click behaviour.
 - **Leaving while the browser is still asking for the microphone.** If permission is then granted, the microphone opens and closes at once, and the browser's indicator may blink on a page with no tuner. Coming back and pressing On / Off during that time shows "starting" without asking again until the first request settles.
-- **The script is downloaded again after every deploy,** because its name carries a build id that is random per build. A fixed build id per commit, if Foldkit's plugin takes one, would let an unchanged script stay cached.
+- **The script is downloaded again after every deploy,** although a browser now keeps it for a year, because every deploy gives it a new name. Two causes are left (`FINDINGS.md`, "Three things rename the script on a deploy that did not change it"). Foldkit's build id is random per build: the plugin takes one from the app (`foldkit({ buildId })`), and it would have to be made from the contents of the files the script is built from, not from the commit. And the Sentry plugin writes the commit into the script as the release: that needs `release.inject: false`, the commit written into each page by `src/entry.server.ts`, and `initSentry` reading it from the page, then a test report from the live site to prove reports still carry a release. Both are needed, or neither helps. The gain is small while nearly every deploy changes the script anyway: 1 of the 19 commits on `main` up to 2026-11-26 would have kept it.
 - **The title is tested as `pageTitle`, not as what `view` returns.** A `view` that ignored `pageTitle` would pass every test.
 - **No automated test clicks through.** Nothing covers the `routing` option in `entry.ts` or what the two navigation Commands do when run. The check is by hand in headless Chrome.
 
