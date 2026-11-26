@@ -36,7 +36,7 @@ Read in `repos/foldkit/packages/foldkit/src/runtime/` (`crashUI.ts`, `renderer.t
 - **No claim that the problem "has been reported"** (given). Reports are sent only from the live hosts, and a visitor's browser may block them. The screen says nothing about reporting.
 - No recovery without a reload. A crashed runtime cannot be restarted.
 - No closing of the microphone on a crash (backlog).
-- No footer on the crash screen. Each of its seven links would need the same treatment as the links below, and none helps someone whose tuner has just stopped.
+- No footer on the crash screen. Each of its six links would need the same treatment as the links below, and none helps someone whose tuner has just stopped.
 
 ## Approaches
 
@@ -64,7 +64,7 @@ The issues link and the brand link take the same `target="_top"`, for the same r
 ### Announcing the screen
 
 1. **`role="alert"` on the heading and the message (chosen).** An alert that is inserted with its text is announced at once, with no script. The app already does this for the microphone's failure line.
-2. **Moving focus to the heading,** as a page change does. Not possible: after a crash there is no Command to run, the view may not touch the DOM, an `autofocus` attribute is not honoured once the visitor has focused anything in the page, and the policy forbids an inline script.
+2. **Moving focus to the heading,** as a page change does. Not possible: after a crash there is no Command to run, the view may not touch the DOM, an `autofocus` attribute on an inserted element is honoured only while nothing in the page has been focused (seen in Chrome), and the policy forbids an inline script.
 
 The two links sit outside the alert, so the announcement is the two sentences and not the controls. Focus is left where the browser puts it when the focused element is removed, on the body, so the first Tab reaches the brand link and the second the reload link.
 
@@ -109,3 +109,9 @@ The header is reused: `Header.view` takes the attributes of the brand link as a 
 
 - Whether happy-dom can run the runtime test at all. If it cannot, the claims it pins stay with the headless Chrome script, and the design says so.
 - The exact classes of the reload link.
+
+## Changes during the build
+
+- happy-dom runs the runtime test. The container it starts in needs an `id`, or the runtime dies at start (`FINDINGS.md`).
+- The title is exported as `CRASH_TITLE`, so both test files check it against one constant.
+- Nothing else changed.
