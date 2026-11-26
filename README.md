@@ -7,7 +7,7 @@ It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <htt
 ## How it is built
 
 - `src/pitch.ts`: pitch detection (McLeod's method) and note naming. Pure.
-- `src/tuning.ts`, `src/preferences.ts`: the tunings, and the tuning and A4 saved in `localStorage`.
+- `src/tuning.ts`, `src/preferences.ts`: the tunings (guitar, bass, ukulele, mandolin and banjo, and Chromatic for anything else), and the tuning and A4 saved in `localStorage`.
 - `src/microphone.ts`: opening and closing the microphone, and reading one measurement.
 - `src/main.ts`: the Model, Messages, `update`, the microphone as a managed resource, and the 50 ms readings as a subscription.
 - `src/entry.server.ts`: how the build writes each page as an HTML file. `src/entry.ts` is the browser's half, which takes that HTML over.

@@ -29,6 +29,17 @@ OK Tuner is a port of the Stem Shovel guitar tuner (`~/projects/stem-shovel`, `s
 
 The app has routing: the routes are in `src/route.ts`, and the route is a field of the Model. To add a page, add its route and router there, a view under `src/page/`, and its case in `pageTitle` and `view` in `src/view.ts` (the compiler asks for both, and for the case in `enterRoute` in `src/main.ts`). Nothing asks for the router to be listed in `Route.oneOf` in `urlToAppRoute`: leave it out and the page shows "Page not found", so add a row to `src/route.test.ts`. Nothing asks for its path in `prerenderPaths` in `src/entry.server.ts` either: leave it out and opening the address directly is a 404. Give the page one `<h1>` with `pageHeadingAttributes`, which is where focus moves when the page appears. Links are plain `<a>` elements built with `textLink` and a router, never a typed-out path. A link to another site is the same element with a full address: the runtime tells the two apart. Addresses used in more than one place are constants in `src/site.ts`. The header (`src/header.ts`) and the footer (`src/footer.ts`) are drawn over and under every page by `view`, outside the `<main>`. Every page has exactly one `<h1>`, which names the page and carries `pageHeadingAttributes`. "OK Tuner" is the brand link in the header, never a heading. Only `ChangedUrl` sets the route. A Scene test cannot follow a link: see `FINDINGS.md` for how navigation is tested.
 
+### Tunings
+
+The tunings are the list `TUNINGS` in `src/tuning.ts`. To add one:
+
+- Add it at the end of the list: the order of the list is the order of the picker.
+- Its `id` is what people's browsers save, so it never changes afterwards. An instrument's usual tuning is named for the instrument (`bass`, `mandolin`), a variant takes a suffix (`bass-5`), and guitar tunings are named for the tuning (`drop-d`).
+- List the strings in the order they sit on the instrument, as a player reads them, not sorted by pitch. Strings tuned together to one note are listed once.
+- Add the id to the list pinned in `src/tuning.test.ts`. The other guards need nothing: the detector's test runs every string of every tuning, and the key test checks that no two chips of a row share a key.
+- Update the how-to page's first tip (`src/page/howTo.ts`), which names the tunings in words. A test fails if the instrument is new and the page does not name it.
+- Look at the open list in a browser. It scrolls in a short window (`FINDINGS.md`).
+
 ### The site is public
 
 Since 2026-11-25 the live site can be indexed. What that rests on:
