@@ -23,15 +23,21 @@ import {
   REFUSED,
   UNSUPPORTED,
   acquireMicrophone,
+  closeOpenMicrophones,
   failureSentence,
   hasEnded,
   microphoneFailure,
   releaseMicrophone,
 } from './microphone'
 
-// Take the fakes away after each test.
+// Take the fakes away after each test, and forget the streams the test
+// opened. `src/microphone.ts` remembers every stream it has open, in the
+// module and not in a Model, so what one test leaves open the next would
+// find (see 'closeOpenMicrophones' below). Several tests here acquire a
+// microphone and never release it.
 afterEach(() => {
   vi.unstubAllGlobals()
+  closeOpenMicrophones()
 })
 
 // Effect idioms used below. `Effect.runPromise(effect)` runs an Effect and
@@ -157,13 +163,16 @@ describe('a missing or busy microphone', () => {
 describe('hasEnded', () => {
   // The handle comes from the real `acquireMicrophone`, with the browser's
   // two entry points replaced by stand-ins, as in the tests further down.
-  // Only the tracks' `readyState` matters here.
+  // Only the tracks' `readyState` matters here. Each track can also be
+  // stopped, as a real one can: the `afterEach` above closes whatever a
+  // test left open.
   const handleWith = (states: ReadonlyArray<string>) => {
     vi.stubGlobal('navigator', {
       mediaDevices: {
         getUserMedia: () =>
           Promise.resolve({
-            getTracks: () => states.map(readyState => ({ readyState })),
+            getTracks: () =>
+              states.map(readyState => ({ readyState, stop: vi.fn() })),
           }),
       },
     })
@@ -234,6 +243,35 @@ describe('failureSentence', () => {
         MicrophoneFailure.Unexpected({ name: 'Unknown', detail: '' }),
       ),
     ).toBe('The microphone could not be opened.')
+  })
+
+  // A message of nothing but white space says nothing either. Shown as it
+  // came it was an alert with no words in it, which a person sees as an
+  // empty gap and a screen reader announces as nothing at all.
+  test.each([
+    ['one space', ' '],
+    ['several spaces', '   '],
+    ['a tab and a line break', '\t\n'],
+    ['a non-breaking space', '\u00a0'],
+  ])(
+    'a message of only white space (%s) gets the plain fallback',
+    (_name, detail) => {
+      expect(
+        failureSentence(
+          MicrophoneFailure.Unexpected({ name: 'Error', detail }),
+        ),
+      ).toBe('The microphone could not be opened.')
+    },
+  )
+
+  // Only the test for "is there anything here" trims. A real message keeps
+  // the spaces it came with: HTML shows a run of them as one.
+  test('a message with words in it is shown as it came, spaces and all', () => {
+    expect(
+      failureSentence(
+        MicrophoneFailure.Unexpected({ name: 'Error', detail: ' No device ' }),
+      ),
+    ).toBe(' No device ')
   })
 })
 
@@ -487,5 +525,113 @@ describe('releaseMicrophone', () => {
 
     expect(stop).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
+  })
+})
+
+// What the crash hook calls. When the app crashes, Foldkit stops handling
+// Messages and releases nothing: the managed resource's `release` runs only
+// when the Model stops asking for the microphone, and the Model never
+// changes again. So `src/microphone.ts` keeps its own note of the streams
+// it has open, and `closeOpenMicrophones` stops them (FINDINGS.md, "A crash
+// releases nothing, so the app closes the microphone itself").
+//
+// The fakes are the ones used above. `openWith(stop)` really acquires a
+// microphone whose one track records being stopped.
+describe('closeOpenMicrophones', () => {
+  const openWith = (stop: () => void) =>
+    Effect.runPromise(
+      Effect.sync(() => {
+        vi.stubGlobal('navigator', {
+          mediaDevices: {
+            getUserMedia: () =>
+              Promise.resolve({ getTracks: () => [{ stop }] }),
+          },
+        })
+        vi.stubGlobal(
+          'AudioContext',
+          class {
+            state = 'running'
+            close = () => Promise.resolve()
+            createAnalyser = () => ({})
+            createMediaStreamSource = () => ({ connect: vi.fn() })
+          },
+        )
+      }).pipe(Effect.andThen(acquireMicrophone)),
+    )
+
+  test('stops the tracks of a microphone that is open', async () => {
+    const stop = vi.fn()
+    await openWith(stop)
+
+    closeOpenMicrophones()
+
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  // Every one of them, not only the last: the set can hold more than one
+  // stream, for the moment between a second opening and the first closing.
+  test('stops every microphone that is open', async () => {
+    const stopFirst = vi.fn()
+    const stopSecond = vi.fn()
+    await openWith(stopFirst)
+    await openWith(stopSecond)
+
+    closeOpenMicrophones()
+
+    expect(stopFirst).toHaveBeenCalledTimes(1)
+    expect(stopSecond).toHaveBeenCalledTimes(1)
+  })
+
+  // A released microphone is forgotten: its tracks were stopped once, by
+  // the release, and are not stopped again.
+  test('leaves alone a microphone that was already released', async () => {
+    const stop = vi.fn()
+    const handle = await openWith(stop)
+    await Effect.runPromise(releaseMicrophone(handle))
+    expect(stop).toHaveBeenCalledTimes(1)
+
+    closeOpenMicrophones()
+
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  // The same for a start that failed after the stream opened: the failure
+  // path stopped the tracks and forgot the stream.
+  test('leaves alone a stream that a failed start already stopped', async () => {
+    const stop = vi.fn()
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        getUserMedia: () => Promise.resolve({ getTracks: () => [{ stop }] }),
+      },
+    })
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        constructor() {
+          throw new Error('no audio')
+        }
+      },
+    )
+    await Effect.runPromiseExit(acquireMicrophone)
+    expect(stop).toHaveBeenCalledTimes(1)
+
+    closeOpenMicrophones()
+
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  // Called twice, the second call finds nothing: a stream is stopped once.
+  test('forgets what it has closed', async () => {
+    const stop = vi.fn()
+    await openWith(stop)
+
+    closeOpenMicrophones()
+    closeOpenMicrophones()
+
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  test('does nothing, and does not throw, when nothing is open', () => {
+    expect(() => closeOpenMicrophones()).not.toThrow()
   })
 })

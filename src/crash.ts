@@ -3,7 +3,8 @@
 // What this file is. One view function, `view`, which src/entry.ts gives to
 // `Runtime.makeApplication` as `crash.view`. It is not a page of the app and
 // has no route: the Foldkit runtime calls it, once, when the app has
-// stopped for good.
+// stopped for good. A second, small export, `reportThenClose`, builds the
+// other crash hook, `crash.report`: it is at the end of the file.
 //
 // WHAT A CRASH IS
 //
@@ -15,7 +16,9 @@
 //   1. marks itself crashed. From here on every Message is dropped: none
 //      reaches `update`, and the app's view is never called again;
 //   2. logs the error to the browser's console;
-//   3. calls `crash.report`, which here is `reportCrash` (src/sentry.ts);
+//   3. calls `crash.report`, which here reports the crash with
+//      `reportCrash` (src/sentry.ts) and then closes the microphone
+//      (`reportThenClose` below);
 //   4. calls `crash.view`, this file, and puts the result where the app's
 //      page was, as it would any other render.
 //
@@ -245,3 +248,46 @@ const tellUsView = (h: HtmlBuilder<never>): Html =>
 // same text in the same type.
 const versionView = (h: HtmlBuilder<never>): Html =>
   h.p([h.Class('mt-12 font-mono text-xs text-slate-300')], [`v${VERSION}`])
+
+// THE OTHER HOOK
+
+// Builds the `crash.report` hook from two things to do: report the crash,
+// then close what the app had open.
+//
+// Why a crash hook closes anything. A crashed runtime releases nothing. A
+// managed resource is released when the Model stops asking for it, and
+// after a crash the Model never changes again, so the microphone would stay
+// open under a screen that says the tuner has stopped (the note at
+// `openStreams` in src/microphone.ts has the whole of it). Foldkit gives
+// the app two hooks and no third, and `crash.report` is the first thing it
+// calls, before the crash screen is drawn. So the closing rides on it.
+//
+// The order, and what each half is promised:
+//
+//   - `report` runs first, exactly as it would alone, so nothing about
+//     closing can cost the report.
+//   - `close` runs in a `finally`, which JavaScript runs whether or not the
+//     `try` block threw, so a report that throws does not leave the
+//     microphone on.
+//
+// If either throws, the error leaves this function. The runtime catches
+// whatever `crash.report` throws, logs it and goes on to draw the crash
+// screen (`renderCrashView`), so there is nothing to catch here. If both
+// throw, the one from `close` is the one that is logged.
+//
+// It takes the two functions as arguments and imports neither. That keeps
+// this file free of the app's own code, as the header asks, and lets a
+// test pass functions that record or throw (src/crash.runtime.test.ts).
+// `Context` is whatever the runtime hands the hook: the function only
+// passes it on.
+/** A `crash.report` hook that calls `report`, then `close`, and calls
+ *  `close` even when `report` throws. */
+export const reportThenClose =
+  <Context>(report: (context: Context) => void, close: () => void) =>
+  (context: Context): void => {
+    try {
+      report(context)
+    } finally {
+      close()
+    }
+  }

@@ -15,6 +15,8 @@ import {
   subscriptions,
   update,
 } from './main'
+// What a crash has to close, since a crashed runtime releases nothing.
+import { closeOpenMicrophones } from './microphone'
 import { reportCrash } from './sentry'
 import { view } from './view'
 // The stylesheet. Vite sees this import in a build, compiles the file with
@@ -121,10 +123,16 @@ const application = Runtime.makeApplication({
   // error never reaches `window.onerror` and Sentry's own handlers never see
   // it. The runtime calls both functions with the same thing: the error, the
   // Model as it was, and the Message being handled if there was one.
-  //   report  called first, before anything is drawn. `reportCrash`
-  //           (src/sentry.ts) sends all three to Sentry (FINDINGS.md,
-  //           "Foldkit catches crashes itself, so Sentry's own handlers
-  //           never see them").
+  //   report  called first, before anything is drawn. It does two things,
+  //           joined by `Crash.reportThenClose` (src/crash.ts). First
+  //           `reportCrash` (src/sentry.ts) sends all three to Sentry
+  //           (FINDINGS.md, "Foldkit catches crashes itself, so Sentry's own
+  //           handlers never see them"). Then `closeOpenMicrophones`
+  //           (src/microphone.ts) stops the microphone if the tuner was
+  //           listening. The runtime will not: after a crash it handles no
+  //           more Messages, so the Model never stops asking for the
+  //           microphone and the managed resource is never released. The
+  //           closing runs even if the report throws.
   //   view    called next, to draw the crash screen in place of the page.
   //           Without it Foldkit draws its own, which shows the error and is
   //           written for a developer. `Crash.view` (src/crash.ts) is for a
@@ -133,7 +141,10 @@ const application = Runtime.makeApplication({
   //           fall back to its own screen.
   // The two are independent: the screen says nothing about the report, and
   // the report is made whether or not the screen can be drawn.
-  crash: { view: Crash.view, report: reportCrash },
+  crash: {
+    view: Crash.view,
+    report: Crash.reportThenClose(reportCrash, closeOpenMicrophones),
+  },
   // The Foldkit DevTools: a panel that lists every Message as it happens,
   // with the Model after it and the Commands `update` returned for it, and
   // that can show the page as it was at an earlier Message. With no `show`
