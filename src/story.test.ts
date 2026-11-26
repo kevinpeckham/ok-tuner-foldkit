@@ -42,9 +42,9 @@
 //    at the end if any is left. (Foldkit exempts interruptible Commands from
 //    the first half of that; this app defines none.)
 // 2. A Command is only data here. Story never runs the Effect inside it, so
-//    nothing is written to storage and nothing is sent to Sentry. What the
-//    app's two Commands really do is tested in `storage.test.ts` and
-//    `sentry.test.ts`.
+//    nothing is written to storage, nothing is sent to Sentry and no timer
+//    is started. What the storage and Sentry Commands really do is tested in
+//    `storage.test.ts` and `sentry.test.ts`.
 //
 // WHAT A STORY CANNOT SEE
 //
@@ -97,6 +97,7 @@ import {
   ReportProblem,
   SavePreferences,
   TunerState,
+  WaitBeforeSlowStartHint,
   init,
   managedResources,
   update,
@@ -165,8 +166,44 @@ const listening = (fields: ListeningFields = {}): Model =>
     }),
   )
 
-// The button has been pressed and the microphone is not open yet.
-const startingModel = withTuner(TunerState.Starting())
+// The button has been pressed and the microphone is not open yet. Like
+// `offModel`, it is taken from a real call to `update`, so it is the Model
+// the app is really in: `Starting` carries the number of the attempt, and
+// the Model's count of starts has gone from 0 to 1. The Command that the
+// same call returned is left behind here. A story that begins with
+// `given(startingModel)` begins with nothing pending.
+const startingModel: Model = update(offModel, Message.ClickedPower()).model
+
+// The same start a little later: the 1.2 second timer has reported, the
+// microphone has still not opened, and the page is showing its "waiting
+// for the microphone" line.
+const slowStartingModel: Model = modifyFields(startingModel, {
+  tuner: () => TunerState.Starting({ attempt: 1, isSlow: true }),
+})
+
+// Pressing On / Off returns a Command, WaitBeforeSlowStartHint: a timer of
+// 1.2 seconds that reports back with `CompletedWaitBeforeSlowStartHint`.
+// Rule 1 in the header then stands in the way of most stories, because in
+// the app the microphone usually answers first and the timer reports
+// afterwards, and a story may not send a Message while a Command is
+// pending.
+//
+// The way round it is the one Foldkit's own tests use for a delay (the
+// hover intent component in `@foldkit/ui`). The timer's Message carries the
+// number of the attempt it belongs to, and `update` ignores a number that
+// is not the current attempt's. So a story resolves the Command with a
+// number no attempt has, which takes it off the pending list and changes
+// nothing, and sends the real report by hand later if it wants one.
+const NO_SUCH_ATTEMPT = -1
+
+const timerSetAside = Command.resolve(
+  WaitBeforeSlowStartHint,
+  Message.CompletedWaitBeforeSlowStartHint({ attempt: NO_SUCH_ATTEMPT }),
+)
+
+// What the timer of one attempt sends when its 1.2 seconds are up.
+const timerReported = (attempt: number) =>
+  Message.CompletedWaitBeforeSlowStartHint({ attempt })
 // A microphone failure of the kind that is a fault, not the person's choice.
 const unexpected = (detail: string): MicrophoneFailure =>
   MicrophoneFailure.Unexpected({ name: 'AbortError', detail })
@@ -226,6 +263,7 @@ describe('init', () => {
   // built `TunerState.Off()` compares them by structure.
   test('it starts booting, on standard tuning, with A4 at 440', () => {
     expect(firstModel.tuner).toEqual(TunerState.Booting())
+    expect(firstModel.startCount).toBe(0)
     expect(firstModel.tuningId).toBe('standard')
     expect(firstModel.a4).toBe(440)
     expect(firstModel.a4Input).toBe('440')
@@ -303,8 +341,13 @@ describe('saved preferences', () => {
       }),
       message(Message.ClickedPower()),
       model(next => {
-        expect(next.tuner).toEqual(TunerState.Starting())
+        expect(next.tuner).toEqual(
+          TunerState.Starting({ attempt: 1, isSlow: false }),
+        )
       }),
+      // The press returned the timer Command, and a story may not end with
+      // a Command pending. See `timerSetAside` above.
+      timerSetAside,
     )
   })
 
@@ -344,23 +387,43 @@ describe('power', () => {
       // pressing the button only asks for the microphone. In the running app
       // the runtime then sees that the Model wants the microphone and opens
       // it, and the tuner listens once `SucceededAcquireMicrophone` arrives
-      // (the next group). `update` returned no Commands, so there is nothing
-      // to resolve before the story ends.
+      // (the next group). This is the first start of the visit, so it is
+      // attempt 1, and it is not slow yet.
       model(next => {
-        expect(next.tuner).toEqual(TunerState.Starting())
+        expect(next.tuner).toEqual(
+          TunerState.Starting({ attempt: 1, isSlow: false }),
+        )
+        expect(next.startCount).toBe(1)
       }),
+      // `update` also returned one Command: the timer that will say, 1.2
+      // seconds from now, that this attempt is taking a while.
+      // `Command.expectExact(...)` passes only if the pending Commands are
+      // exactly the ones listed: none missing and none extra, in any order.
+      // What is listed here is a Command built with its arguments, so both
+      // the name and the arguments must match. Listing the bare definition,
+      // `WaitBeforeSlowStartHint`, would match on the name alone.
+      Command.expectExact(WaitBeforeSlowStartHint({ attempt: 1 })),
+      // `expectExact` only looks. A story with a Command still pending fails
+      // at its end, so the timer is resolved: see `timerSetAside` above, and
+      // the group "waiting for the microphone" for what its report does.
+      timerSetAside,
     )
   })
 
-  // After a failure the same button is the way to try again.
+  // After a failure the same button is the way to try again, and the new
+  // start gets a timer of its own.
   test('pressing power after a failure starts again', () => {
     story(
       update,
       given(failedModel),
       message(Message.ClickedPower()),
       model(next => {
-        expect(next.tuner).toEqual(TunerState.Starting())
+        expect(next.tuner).toEqual(
+          TunerState.Starting({ attempt: 1, isSlow: false }),
+        )
       }),
+      Command.expectExact(WaitBeforeSlowStartHint({ attempt: 1 })),
+      timerSetAside,
     )
   })
 
@@ -376,21 +439,210 @@ describe('power', () => {
       model(next => {
         expect(next.tuner).toEqual(TunerState.Off())
       }),
+      // Only a start has a timer. `Command.expectNone()` passes only when
+      // no Command is pending.
+      Command.expectNone(),
     )
   })
 
   // A second press while the microphone is still being opened is ignored: the
-  // whole Model is unchanged, not only `tuner`. The page disables the button
-  // in this state and Scene refuses to click a disabled element, so only a
-  // story can show what `update` does with this Message.
-  test('pressing power while starting changes nothing', () => {
+  // whole Model is unchanged, not only `tuner`, and no second timer is
+  // started. The page disables the button in this state and Scene refuses to
+  // click a disabled element, so only a story can show what `update` does
+  // with this Message.
+  test.each([
+    ['starting', startingModel],
+    ['starting slowly', slowStartingModel],
+  ])('pressing power while %s changes nothing', (_name, start) => {
+    story(
+      update,
+      given(start),
+      message(Message.ClickedPower()),
+      model(next => {
+        expect(next).toEqual(start)
+      }),
+      Command.expectNone(),
+    )
+  })
+})
+
+// While the browser's permission prompt is open the tuner is `Starting`,
+// and all the page used to say was "Starting…". Someone who had not noticed
+// the prompt saw a tuner that seemed stuck. So a start that is still going
+// after 1.2 seconds is marked slow, and the page then says what it is
+// waiting for (the microphone-polish design; FINDINGS.md, "The tuner says
+// what it is waiting for, by the clock").
+//
+// The 1.2 seconds are a Command, WaitBeforeSlowStartHint, returned by the
+// press that starts the tuner. Its report is the Message
+// `CompletedWaitBeforeSlowStartHint`, which these tests send by hand: a
+// story has no clock. `update` never asks what time it is. All it knows is
+// the order the Messages arrive in.
+describe('waiting for the microphone', () => {
+  // The timer reports and the microphone has still not opened: the start
+  // is now slow. `isSlow` is all that changes, and nothing more is asked
+  // of the runtime.
+  test('a start that outlasts its timer is marked slow', () => {
     story(
       update,
       given(startingModel),
-      message(Message.ClickedPower()),
+      message(timerReported(1)),
       model(next => {
-        expect(next).toEqual(startingModel)
+        expect(next.tuner).toEqual(
+          TunerState.Starting({ attempt: 1, isSlow: true }),
+        )
+        expect(next).toEqual(slowStartingModel)
       }),
+      Command.expectNone(),
+    )
+  })
+
+  // The same thing from the press, with the Command resolved the ordinary
+  // way: `Command.resolve` takes the timer off the pending list and sends
+  // its report through `update`.
+  test('pressing power, then waiting, ends in a slow start', () => {
+    story(
+      update,
+      given(offModel),
+      message(Message.ClickedPower()),
+      Command.resolve(WaitBeforeSlowStartHint, timerReported(1)),
+      model(next => {
+        expect(next.tuner).toEqual(
+          TunerState.Starting({ attempt: 1, isSlow: true }),
+        )
+      }),
+    )
+  })
+
+  // The usual case: the microphone answers long before the timer does. By
+  // the time the timer reports, the tuner is listening, or has failed, or
+  // was switched off, and the report changes nothing. A fast start
+  // therefore never shows the line. `Booting` is on the list because the
+  // match in `update` has to answer for it, though no timer can be running
+  // before the first press.
+  test.each([
+    ['booting', firstModel],
+    ['off', offModel],
+    ['listening', listening({ needleCents: 12, level: 0.3 })],
+    ['failed', failedModel],
+  ])('a timer that reports while %s changes nothing', (_name, start) => {
+    story(
+      update,
+      given(start),
+      message(timerReported(1)),
+      model(next => {
+        expect(next).toEqual(start)
+      }),
+      Command.expectNone(),
+    )
+  })
+
+  // Why the attempts are numbered. Switch the tuner on, off and on again
+  // inside 1.2 seconds, and the first press's timer reports while the tuner
+  // is starting for the second time. Without the number that report would
+  // mark the second start slow when it has barely begun, and the line would
+  // flash up on a start that was about to succeed. With it, the report is
+  // for attempt 1, the tuner is on attempt 2, and nothing happens until
+  // attempt 2's own timer reports.
+  test('a timer from an earlier start is ignored by a later one', () => {
+    story(
+      update,
+      given(offModel),
+      // The first start. Its timer is set aside, to be sent by hand below.
+      message(Message.ClickedPower()),
+      Command.expectExact(WaitBeforeSlowStartHint({ attempt: 1 })),
+      timerSetAside,
+      // On, then off again.
+      message(Message.SucceededAcquireMicrophone()),
+      message(Message.ClickedPower()),
+      // The second start has the next number, in the Model and in its
+      // Command.
+      message(Message.ClickedPower()),
+      Command.expectExact(WaitBeforeSlowStartHint({ attempt: 2 })),
+      timerSetAside,
+      model(next => {
+        expect(next.startCount).toBe(2)
+      }),
+      // The first timer reports. It is not this attempt's.
+      message(timerReported(1)),
+      model(next => {
+        expect(next.tuner).toEqual(
+          TunerState.Starting({ attempt: 2, isSlow: false }),
+        )
+      }),
+      // The second timer reports, and now the start is slow.
+      message(timerReported(2)),
+      model(next => {
+        expect(next.tuner).toEqual(
+          TunerState.Starting({ attempt: 2, isSlow: true }),
+        )
+      }),
+    )
+  })
+
+  // The other way to start twice: a start that fails at once (a refusal
+  // the browser remembers answers in milliseconds) and a second press.
+  test('a retry after a fast failure is a new attempt', () => {
+    story(
+      update,
+      given(offModel),
+      message(Message.ClickedPower()),
+      timerSetAside,
+      message(
+        Message.FailedAcquireMicrophone({
+          failure: MicrophoneFailure.Refused(),
+        }),
+      ),
+      message(Message.ClickedPower()),
+      Command.expectExact(WaitBeforeSlowStartHint({ attempt: 2 })),
+      timerSetAside,
+      message(timerReported(1)),
+      model(next => {
+        expect(next.tuner).toEqual(
+          TunerState.Starting({ attempt: 2, isSlow: false }),
+        )
+      }),
+    )
+  })
+
+  // A slow start ends like any other. Granting the permission begins
+  // listening from a clean state, and nothing of the wait is left over:
+  // `isSlow` lives inside `Starting`, so leaving `Starting` is what clears
+  // it.
+  test('a slow start that is granted begins listening', () => {
+    story(
+      update,
+      given(slowStartingModel),
+      message(Message.SucceededAcquireMicrophone()),
+      model(next => {
+        expect(next.tuner).toEqual(
+          TunerState.Listening({
+            level: 0,
+            maybeReading: Option.none(),
+            needleCents: 0,
+            quietTicks: 0,
+          }),
+        )
+      }),
+      Command.expectNone(),
+    )
+  })
+
+  test('a slow start that is refused fails with the reason', () => {
+    story(
+      update,
+      given(slowStartingModel),
+      message(
+        Message.FailedAcquireMicrophone({
+          failure: MicrophoneFailure.Refused(),
+        }),
+      ),
+      model(next => {
+        expect(next.tuner).toEqual(
+          TunerState.Failed({ failure: MicrophoneFailure.Refused() }),
+        )
+      }),
+      Command.expectNone(),
     )
   })
 })
@@ -445,8 +697,7 @@ describe('microphone', () => {
   // A fault (anything other than the person's own refusal or an unsupported
   // browser) does two things. The tuner moves to `Failed`, carrying the
   // failure for the page to show, and `update` returns a `ReportProblem`
-  // Command so the fault reaches Sentry. These are the first tests in the
-  // file where `update` returns a Command.
+  // Command so the fault reaches Sentry.
   test.each([
     ['starting', startingModel],
     ['listening', listening({ needleCents: 12 })],
@@ -466,11 +717,8 @@ describe('microphone', () => {
             TunerState.Failed({ failure: unexpected('No microphone') }),
           )
         }),
-        // `Command.expectExact(...)` passes only if the pending Commands are
-        // exactly the ones listed: none missing and none extra, in any
-        // order. What is listed here is a Command built with its arguments,
-        // so both the name and the arguments must match. Listing the bare
-        // definition, `ReportProblem`, would match on the name alone.
+        // The Command is listed with its arguments, so `expectExact` checks
+        // what is reported as well as that something is.
         Command.expectExact(
           ReportProblem({ name: 'AbortError', detail: 'No microphone' }),
         ),
@@ -494,8 +742,7 @@ describe('microphone', () => {
 
   // A refusal, or a browser that cannot open a microphone at all, is the
   // person's own situation and not a fault. It is shown and never reported
-  // (AGENTS.md, "Error reporting"). `Command.expectNone()` passes only when
-  // no Command is pending.
+  // (AGENTS.md, "Error reporting").
   test.each([
     ['refused', MicrophoneFailure.Refused()],
     ['unsupported', MicrophoneFailure.Unsupported()],
@@ -543,6 +790,7 @@ describe('microphone', () => {
   test.each([
     ['off', offModel],
     ['starting', startingModel],
+    ['starting slowly', slowStartingModel],
     ['listening', listening({ needleCents: 12 })],
     ['failed', failedModel],
   ])('releasing while %s changes nothing', (_name, start) => {
@@ -566,6 +814,10 @@ describe('microphone', () => {
       update,
       given(offModel),
       message(Message.ClickedPower()),
+      // Each press that starts the tuner returns its timer, which has to be
+      // off the pending list before the next Message (`timerSetAside`,
+      // among the fixtures).
+      timerSetAside,
       message(
         Message.FailedAcquireMicrophone({
           failure: MicrophoneFailure.Refused(),
@@ -577,8 +829,11 @@ describe('microphone', () => {
         )
       }),
       message(Message.ClickedPower()),
+      timerSetAside,
       model(next => {
-        expect(next.tuner).toEqual(TunerState.Starting())
+        expect(next.tuner).toEqual(
+          TunerState.Starting({ attempt: 2, isSlow: false }),
+        )
       }),
       message(Message.SucceededAcquireMicrophone()),
       model(next => {
@@ -605,6 +860,7 @@ describe('readings', () => {
   test.each([
     ['off', offModel],
     ['starting', startingModel],
+    ['starting slowly', slowStartingModel],
     ['failed', failedModel],
   ])('a reading that arrives while %s is ignored', (_name, start) => {
     story(
@@ -750,9 +1006,11 @@ describe('microphone requirement', () => {
   // These two tests are the whole switch for the hardware. Wrong here, and
   // the microphone would stay open after Off, or never be opened at all.
   // `Starting` must want it, because that is the state the tuner waits in
-  // while the browser asks for permission.
+  // while the browser asks for permission, and it must go on wanting it
+  // when the start is marked slow.
   test.each([
     ['starting', startingModel],
+    ['starting slowly', slowStartingModel],
     ['listening', listening()],
   ])('the microphone is required while %s', (_name, start) => {
     expect(managedResources.microphone.modelToMaybeRequirements(start)).toEqual(
@@ -1096,6 +1354,7 @@ describe('routing', () => {
   ])('leaving the tuner page for %s', (_, url, route) => {
     test.each([
       ['starting', startingModel],
+      ['starting slowly', slowStartingModel],
       ['listening', listening({ level: 0.4 })],
       ['failed', failedModel],
       ['off', offModel],
@@ -1235,6 +1494,7 @@ describe('a missing, busy or lost microphone', () => {
   test.each([
     ['off', offModel],
     ['starting', startingModel],
+    ['starting slowly', slowStartingModel],
     ['failed', failedModel],
   ])('losing the microphone while %s changes nothing', (_, start) => {
     story(

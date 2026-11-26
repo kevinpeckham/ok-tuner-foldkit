@@ -123,6 +123,7 @@ import {
   ReportProblem,
   SavePreferences,
   TunerState,
+  WaitBeforeSlowStartHint,
   init,
   managedResources,
   update,
@@ -195,6 +196,40 @@ const hearing = (frequency: number, needleCents: number): Model =>
     needleCents,
   })
 
+// The On / Off button has been pressed and the microphone has not opened
+// yet. The Model is taken from a real call to `update`, like `offModel`.
+// The timer Command that the same call returned is left behind, so a scene
+// that begins here begins with nothing pending.
+const startingModel: Model = update(offModel, Message.ClickedPower()).model
+
+// THE START TIMER
+//
+// A press that starts the tuner returns a Command, WaitBeforeSlowStartHint:
+// a timer of 1.2 seconds. If the tuner is still starting when it reports,
+// the page says what it is waiting for (see "waiting for the microphone"
+// below). No timer runs in a test. The Command is pending until the scene
+// says how it ended, and rule 3 in the header means that has to be said
+// before the microphone can open or fail. There are two things to say.
+//
+// `timerReports`: the 1.2 seconds are up, and this is the first start of
+// the visit, attempt 1.
+const timerReports = Command.resolve(
+  WaitBeforeSlowStartHint,
+  Message.CompletedWaitBeforeSlowStartHint({ attempt: 1 }),
+)
+
+// `timerSetAside`: the scene is about a start the microphone answers
+// quickly, before the timer. The timer's Message carries the number of the
+// attempt it belongs to, and `update` ignores a number that is not the
+// current attempt's, so resolving the Command with a number no attempt has
+// takes it off the pending list and changes nothing. `story.test.ts` says
+// more about this, and shows that a timer which reports after the
+// microphone has answered changes nothing either.
+const timerSetAside = Command.resolve(
+  WaitBeforeSlowStartHint,
+  Message.CompletedWaitBeforeSlowStartHint({ attempt: -1 }),
+)
+
 // A copy of a Model on another tuning.
 const withTuning = (model: Model, tuningId: string): Model =>
   modifyFields(model, { tuningId: () => tuningId })
@@ -202,7 +237,7 @@ const withTuning = (model: Model, tuningId: string): Model =>
 // LOCATORS
 //
 // A locator says how to find an element. It is not the element. Each step
-// that uses one searches the page as drawn at that step, so these four can
+// that uses one searches the page as drawn at that step, so these can
 // be made once, here, and used in every test and after every redraw.
 // Foldkit's locators favour what a person or a screen reader goes by (role,
 // name, label, visible text) over CSS, so a test that finds its button has
@@ -232,6 +267,13 @@ const litString = selector('[aria-current="true"]')
 // and a bare `li` counted ten strings where there are six (FINDINGS.md, "Scope a locator to the part of
 // the page it is about").
 const strings = all.selector('[aria-label="Strings"] li')
+// The place under the On / Off button where the page says what it is
+// waiting for. `role="status"` is a polite live region: a screen reader
+// reads out what appears in it, once it has finished what it was saying.
+const statusRegion = role('status')
+// The whole of the line, as the page words it.
+const WAITING_LINE =
+  'Waiting for the microphone. If your browser is asking for permission, allow it.'
 
 // The page as the build draws it and as a browser first shows it, before
 // the script has run. The On / Off button is there and says what it is, but
@@ -307,6 +349,11 @@ describe('power', () => {
         'aria-busy',
         'true',
       ),
+      // The press also returned the timer Command. In this scene the
+      // microphone opens before the 1.2 seconds are up, as it does when
+      // permission was given on an earlier visit (THE START TIMER, among
+      // the fixtures).
+      timerSetAside,
       // Nothing opens a microphone in a test. The `ManagedResource` steps
       // play the runtime's part instead, and each takes the app's own entry
       // for the resource. `ManagedResource.acquire(entry)` says "the
@@ -359,6 +406,7 @@ describe('power', () => {
       { update, view },
       given(offModel),
       click(powerButton),
+      timerSetAside,
       ManagedResource.failAcquire(
         managedResources.microphone,
         Object.assign(new Error('denied'), { name: 'NotAllowedError' }),
@@ -387,6 +435,7 @@ describe('power', () => {
       { update, view },
       given(offModel),
       click(powerButton),
+      timerSetAside,
       ManagedResource.failAcquire(
         managedResources.microphone,
         Object.assign(new Error('The device is busy'), {
@@ -413,10 +462,140 @@ describe('power', () => {
       { update, view },
       given(offModel),
       click(powerButton),
+      timerSetAside,
       ManagedResource.failAcquire(managedResources.microphone, '???'),
       Command.expectExact(ReportProblem({ name: 'Unknown', detail: '' })),
       Command.resolve(ReportProblem, Message.CompletedReportProblem()),
       expect(role('alert')).toHaveText('The microphone could not be opened.'),
+    )
+  })
+})
+
+// While the browser's permission prompt is open, the button says
+// "Starting…". To someone who has not noticed the prompt that looks like a
+// tuner that is stuck. So when a start has lasted 1.2 seconds, a line under
+// the button says what the tuner is waiting for, and the line goes when the
+// start ends, whichever way it ends. A start the microphone answers quickly
+// never shows it.
+describe('waiting for the microphone', () => {
+  const startingButton = role('button', { name: 'Starting…' })
+
+  // The region the line appears in is on the page from the very first
+  // drawing, empty. That is for screen readers: one announces a change to a
+  // live region it already knows about, and may say nothing about a region
+  // that arrives with its text already in it. `toBeEmpty` passes when the
+  // element has no text and no children.
+  test.each([
+    ['before the app is running', firstModel],
+    ['off', offModel],
+    ['listening', listening()],
+  ])('%s: the status region is there, and empty', (_name, start) => {
+    scene({ update, view }, given(start), expect(statusRegion).toBeEmpty())
+  })
+
+  // The whole of it, in the order a person meets it who takes a while to
+  // find the browser's prompt.
+  test('the line appears when the wait is over, and goes when the microphone opens', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      click(powerButton),
+      // Just after the press: starting, and nothing said yet.
+      expect(startingButton).toExist(),
+      expect(statusRegion).toBeEmpty(),
+      // 1.2 seconds later the tuner is still starting.
+      timerReports,
+      expect(statusRegion).toHaveText(WAITING_LINE),
+      // The button has not changed: still busy, still disabled.
+      expect(startingButton).toBeDisabled(),
+      // The person allows the microphone. The tuner is on and the line has
+      // gone, though the region stays.
+      ManagedResource.acquire(managedResources.microphone),
+      expect(powerButton).toHaveAttr('aria-pressed', 'true'),
+      expect(statusRegion).toBeEmpty(),
+    )
+  })
+
+  // The person says no instead. The line gives way to the alert.
+  test('the line goes when the microphone is refused', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      click(powerButton),
+      timerReports,
+      expect(statusRegion).toHaveText(WAITING_LINE),
+      ManagedResource.failAcquire(
+        managedResources.microphone,
+        Object.assign(new Error('denied'), { name: 'NotAllowedError' }),
+      ),
+      expect(statusRegion).toBeEmpty(),
+      expect(role('alert')).toHaveText(REFUSED),
+    )
+  })
+
+  // A start that is answered before the timer: the line is never drawn,
+  // before or after.
+  test('a start that is granted quickly never shows the line', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      click(powerButton),
+      expect(statusRegion).toBeEmpty(),
+      timerSetAside,
+      expect(statusRegion).toBeEmpty(),
+      ManagedResource.acquire(managedResources.microphone),
+      expect(statusRegion).toBeEmpty(),
+    )
+  })
+})
+
+// How the On / Off button looks to a pointer. While it is disabled (before
+// the app is running, and while the tuner is starting) it must not look
+// pressable: no pointing hand, and no change of colour under the pointer.
+// The classes are Tailwind's, and a scene can only see that the view asked
+// for them. What a browser then draws was checked in headless Chrome.
+// `toHaveClass(name)` passes when the element's class list has that one
+// name in it, and `.not` turns any matcher round.
+describe('the power button under a pointer', () => {
+  const startingButton = role('button', { name: 'Starting…' })
+
+  test.each([
+    ['off', offModel],
+    ['listening', listening()],
+  ])('%s: the pointing hand, and a hover colour', (_name, start) => {
+    scene(
+      { update, view },
+      given(start),
+      expect(powerButton).toHaveClass('cursor-pointer'),
+      expect(powerButton).toHaveClass('hover:bg-slate-900'),
+      expect(powerButton).not.toHaveClass('cursor-default'),
+      expect(powerButton).not.toHaveClass('opacity-50'),
+    )
+  })
+
+  // Starting is busy, not unavailable: the spinner says so, and the button
+  // is not dimmed.
+  test('starting: the ordinary cursor, no hover colour, not dimmed', () => {
+    scene(
+      { update, view },
+      given(startingModel),
+      expect(startingButton).toBeDisabled(),
+      expect(startingButton).toHaveClass('cursor-default'),
+      expect(startingButton).not.toHaveClass('cursor-pointer'),
+      expect(startingButton).not.toHaveClass('hover:bg-slate-900'),
+      expect(startingButton).not.toHaveClass('opacity-50'),
+    )
+  })
+
+  test('before the app is running: the ordinary cursor, no hover colour, dimmed', () => {
+    scene(
+      { update, view },
+      given(firstModel),
+      expect(powerButton).toBeDisabled(),
+      expect(powerButton).toHaveClass('cursor-default'),
+      expect(powerButton).toHaveClass('opacity-50'),
+      expect(powerButton).not.toHaveClass('cursor-pointer'),
+      expect(powerButton).not.toHaveClass('hover:bg-slate-900'),
     )
   })
 })

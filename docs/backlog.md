@@ -6,10 +6,8 @@ Items are grouped by kind, not ranked.
 
 ## Microphone and listening
 
-- **Waiting for permission.** While the browser's permission prompt is open the button says "Starting…" and nothing else. Say that the browser is waiting for microphone permission when that is the case, and consider a way to cancel.
 - **Start listening when the pointer enters the page.** Agreed during design, to follow the basics.
 - **Pitch detection off the main thread.** `detectPitch` runs on the main thread every 50 ms. Weigh an `AudioWorklet` or a Web Worker: the gain is a steadier needle on slow phones, the cost is a second build entry and message passing. Measure on a slow phone before deciding.
-- **Power button while starting.** It keeps the pointer cursor and hover colour although it is disabled.
 - **Development only:** a hot reload that restores "on" may leave the audio context suspended until a click.
 
 ## Screen readers and keyboard
@@ -69,6 +67,7 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 
 - **Custom device skins for the tuner.** Other faces for the pedal, chosen by the person and remembered with the tuning and A4.
 - **A color-splash background** behind the tuner, in place of the flat dark ground.
+- **The pedal grows when a line appears under the On / Off button.** The "waiting for the microphone" line makes it 52 px taller at desktop width and 72 px on a phone, and the failure line does the same, so the link under the tuner moves down and back. Measured in headless Chrome on 2026-11-26. Reserving the room would make the pedal taller all the time.
 
 ## Page content
 

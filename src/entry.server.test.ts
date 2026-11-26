@@ -130,6 +130,17 @@ describe('the tuner page, as the build writes it', () => {
     expect(powerButton?.[0]).toContain('aria-disabled="true"')
   })
 
+  // The place where the tuner says it is waiting for the microphone is in
+  // the file, empty: a screen reader announces a change to a live region
+  // that was there when the page loaded. The line itself belongs to a
+  // start that has lasted a while, and the build never starts the tuner.
+  test('has the status region, empty, and not the waiting line', async () => {
+    const html = await documentAt('/')
+
+    expect(html).toMatch(/<div[^>]*role="status"[^>]*><\/div>/)
+    expect(html).not.toContain('Waiting for the microphone')
+  })
+
   // The first Model is the same for every visitor, so the page in the file
   // shows the default tuning. A saved one replaces it in the browser.
   test('shows the default tuning', async () => {
