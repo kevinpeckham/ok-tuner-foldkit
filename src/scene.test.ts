@@ -58,7 +58,9 @@
 // 1. As in a story, a Command is only data: its Effect never runs, and every
 //    Command that `update` returns must be resolved before the scene ends.
 // 2. Mounts are held to the same rule: every Mount in the drawn page must be
-//    given its result (see `acknowledgeSettingsMenu` near the end).
+//    given its result (see `acknowledgeSettingsMenu` near the end). And a
+//    Mount whose element then leaves the page must be acknowledged with
+//    `Mount.expectEnded` (see OPENING BY A CLICK, at the end).
 // 3. A step that sends a Message (an interaction or a ManagedResource step)
 //    throws if a Command or a Mount from an earlier step is still unresolved.
 // 4. An interaction refuses what a browser would refuse. `click` throws if
@@ -72,13 +74,15 @@
 //   the tuner, and it took a screenshot to see it (FINDINGS.md, "An open list
 //   or menu hides behind the tuner body without a z-index").
 // - A real microphone and real sound. Opening and closing the microphone is
-//   tested in `microphone.test.ts` and finding a pitch in `pitch.test.ts`.
-//   The real page, with and without a microphone, is checked outside this
+//   tested in `microphone.test.ts` and finding a pitch in `pitch.test.ts`,
+//   and `app.runtime.test.ts` has a runtime do both with a stand-in. The
+//   real page, with and without a microphone, is checked outside this
 //   suite, in headless Chrome (FINDINGS.md, "Checking the real page in
 //   headless Chrome, with and without a microphone").
-// - Opening the picker or the menu by clicking. These tests put the menu in
-//   its open state by building the Model. Click-through of both is covered
-//   by the same check in headless Chrome.
+// - Where an open list or menu lands, and where the keyboard focus goes.
+//   The last two scenes open the picker and the menu by clicking and use
+//   them. Placing the panel and moving the focus are a Mount's and a
+//   Command's work, which a scene resolves and does not run.
 
 import { Option } from 'effect'
 // The Scene steps and locators. Several of these names mean something else
@@ -115,7 +119,7 @@ import { modifyFields } from 'foldkit/struct'
 import { fromString } from 'foldkit/url'
 import { describe, test } from 'vitest'
 
-import { Popover } from '@foldkit/ui'
+import { Listbox, Popover } from '@foldkit/ui'
 
 import {
   Message,
@@ -668,10 +672,22 @@ describe('screen', () => {
 
   // Listening, with sound coming in but no note found in it yet. Nothing
   // about a note may show.
+  //
+  // The first three checks say what is there. Without them the test would
+  // pass on a blank page, or on the wrong page: "absent" is true of
+  // everything a page does not have. So it first shows that this is the
+  // tuner, switched on, with the level bar following the sound and the six
+  // strings waiting.
   test('no reading: there is no detail line and no needle marker', () => {
     scene(
       { update, view },
       given(listening({ level: 0.2 })),
+      expect(powerButton).toHaveAttr('aria-pressed', 'true'),
+      expect(role('meter', { name: 'Input level' })).toHaveAttr(
+        'aria-valuenow',
+        '20',
+      ),
+      expectAll(strings).toHaveCount(6),
       // `text` also takes a regular expression, which it tests against the
       // text of each element. The pattern is `/Hz ·/` and not `/Hz/` because
       // the how-to text, which was on this page when the test was written,
@@ -801,10 +817,19 @@ describe('strings', () => {
 
   // Chromatic names any note and has no strings. The whole list is left out,
   // not drawn empty, and nothing is lit even with a note sounding.
+  //
+  // As in "no reading" above, the first three checks say what is there, so
+  // that a blank page cannot pass: the picker names the tuning, and the note
+  // that is sounding is named and measured as on any other tuning.
   test('chromatic shows no strings', () => {
     scene(
       { update, view },
       given(withTuning(hearing(110, 0), 'chromatic')),
+      expect(role('button', { name: 'Tuning' })).toContainText(
+        'Chromatic: Any Instrument',
+      ),
+      expect(selector('[aria-live="polite"]')).toHaveText('A2'),
+      expect(text('110.0 Hz · 0 cents · in tune')).toExist(),
       expect(role('list', { name: 'Strings' })).toBeAbsent(),
       expect(litString).toBeAbsent(),
     )
@@ -840,9 +865,9 @@ describe('strings', () => {
 // the runtime, which listens on the real document and sends ClickedLink,
 // and a scene has no runtime and no address bar. So these tests pin what
 // each page shows and where its link points. `update`'s half is in
-// story.test.ts under 'routing', and a click through and back in a real
-// browser is a check by hand (FINDINGS.md, "A Scene test cannot follow a
-// link").
+// story.test.ts under 'routing', and the click through and back is made in
+// a running app, in app.runtime.test.ts (FINDINGS.md, "A Scene test cannot
+// follow a link").
 describe('pages', () => {
   const onRoute = (route: AppRoute): Model =>
     modifyFields(offModel, { route: () => route })
@@ -1255,6 +1280,116 @@ describe('controls', () => {
       Command.expectNone(),
       expect(label('A4 (Hz)')).toHaveAttr('aria-invalid', 'true'),
       expect(title('82.41 Hz')).toHaveText('E'),
+    )
+  })
+
+  // OPENING BY A CLICK
+  //
+  // The scenes above build a Model with the menu already open. These two
+  // start with everything closed and do what a person does: click the
+  // control, then use what opens.
+  //
+  // A click that opens a Foldkit UI component is followed by up to three
+  // steps before the scene may go on, because rule 3 in the header lets no
+  // interaction run while a Command or a Mount is waiting:
+  //
+  //   1. the Commands the component's update returned for the click, if any;
+  //   2. the Mount of the panel that has just been drawn;
+  //   3. the Mount of the backdrop behind it.
+  //
+  // The three may come in any order, as long as all are done before the
+  // next click.
+  //
+  // The Listbox returns one Command when it opens, `FocusItems`, which moves
+  // the keyboard focus into the list. The Popover returns none, because
+  // this one is not modal. Each step takes the component's own Message,
+  // unwrapped, as `acknowledgeSettingsMenu` does. Foldkit's own Listbox test
+  // opens one the same way
+  // (`repos/foldkit/packages/ui/src/listbox/single.test.ts`).
+
+  // The picker, from closed to a new tuning. The list is a `listbox` and
+  // each tuning in it an `option`: the Listbox gives its elements those
+  // roles, and they are what a screen reader goes by.
+  test('clicking the picker opens the list, and clicking a tuning chooses it', () => {
+    scene(
+      { update, view },
+      given(listening()),
+      // Closed: there is no list on the page at all.
+      expect(role('listbox')).toBeAbsent(),
+      click(tuningPicker),
+      // `expectExact` with a Command built from its definition checks the
+      // arguments too: the Listbox is told which list to focus by its id.
+      Command.expectExact(Listbox.FocusItems({ id: 'tuning' })),
+      Command.resolve(
+        Listbox.FocusItems,
+        Listbox.Message.CompletedFocusItems(),
+      ),
+      Mount.resolve(
+        Listbox.AnchorListbox,
+        Listbox.Message.CompletedAnchorListbox(),
+      ),
+      Mount.resolve(
+        Listbox.PortalListboxBackdrop,
+        Listbox.Message.CompletedPortalListboxBackdrop(),
+      ),
+      // Open: every tuning is offered, and the one in use is marked.
+      expect(tuningPicker).toHaveAttr('aria-expanded', 'true'),
+      expectAll(all.role('option')).toHaveCount(TUNINGS.length),
+      expect(role('option', { name: 'Guitar - Standard' })).toHaveAttr(
+        'aria-selected',
+        'true',
+      ),
+      click(role('option', { name: 'Bass - Standard' })),
+      // Choosing returns two Commands: the Listbox hands the focus back to
+      // its button, and the app saves the choice. `resolveAllExact` fails
+      // if either is missing or if anything else came back.
+      Command.resolveAllExact(
+        [Listbox.FocusButton, Listbox.Message.CompletedFocusButton()],
+        [SavePreferences, Message.SucceededSavePreferences()],
+      ),
+      // The list has gone, and its two Mounts with it. In a browser that is
+      // when the runtime runs a Mount's clean-up. `Mount.expectEnded`
+      // acknowledges it, and is not optional: a scene in which a Mount
+      // leaves the page fails at its end unless a step has said so. It
+      // throws if a Mount it names is still on the page.
+      Mount.expectEnded(Listbox.AnchorListbox, Listbox.PortalListboxBackdrop),
+      // Closed again, on the new tuning: the button names it, and the
+      // chips are a bass's four strings.
+      expect(role('listbox')).toBeAbsent(),
+      expect(tuningPicker).toContainText('Bass - Standard'),
+      expectAll(strings).toHaveCount(4),
+      expect(nth(strings, 3)).toHaveText('G'),
+    )
+  })
+
+  // The settings menu, from closed to a new A4 and closed again. The second
+  // click on the button is how a person closes it, and closing returns the
+  // Popover's one Command, which hands the focus back to the button.
+  test('clicking the settings button opens the menu, where A4 can be changed', () => {
+    scene(
+      { update, view },
+      given(listening()),
+      // Closed: the field is not on the page.
+      expect(label('A4 (Hz)')).toBeAbsent(),
+      click(settingsMenu),
+      Command.expectNone(),
+      ...acknowledgeSettingsMenu,
+      expect(settingsMenu).toHaveAttr('aria-expanded', 'true'),
+      expect(label('A4 (Hz)')).toHaveValue('440'),
+      type(label('A4 (Hz)'), '442'),
+      Command.expectExact(SavePreferences({ tuningId: 'standard', a4: 442 })),
+      Command.resolve(SavePreferences, Message.SucceededSavePreferences()),
+      expect(title('82.78 Hz')).toHaveText('E'),
+      click(settingsMenu),
+      Command.resolveAllExact([
+        Popover.FocusButton,
+        Popover.Message.CompletedFocusButton(),
+      ]),
+      Mount.expectEnded(Popover.AnchorPopover, Popover.PortalPopoverBackdrop),
+      expect(settingsMenu).toHaveAttr('aria-expanded', 'false'),
+      expect(label('A4 (Hz)')).toBeAbsent(),
+      // The new pitch outlives the menu.
+      expect(title('82.78 Hz')).toHaveText('E'),
     )
   })
 })

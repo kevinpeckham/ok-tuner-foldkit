@@ -30,15 +30,10 @@ Items are grouped by kind, not ranked.
 
 ## Tests
 
-- Two scene tests assert only that something is absent ("no reading", "chromatic shows no strings"). Add a positive assertion to each.
-- Untested: the readings stream itself, analyser wiring failing after the audio context exists, and a rejected `resume()` or `close()`.
-- Picker and menu click-through is covered by a headless-browser check, not by the suite.
-- **The "no IP address" promise is pinned only through the options.** Assert on what is sent: the SDK marks each report so Sentry does not infer the address (`infer_ip: never`).
-- **`ReportProblem`'s own catch-all is not pinned.** No test makes `reportMicrophoneProblem` throw and checks the Command still completes.
-- **The blocked-storage start-up test for Sentry guards nothing today.** This SDK version does not touch storage when it starts with our options, so the test passes with or without the `try`. It is there for a later version.
-- **Three Story tests list Commands that are never returned.** `resolveAll` ignores them, so those lines assert nothing (see `FINDINGS.md`). Use `resolveAllExact`, and add a test for choosing a tuning with the list open, which returns `FocusButton` as well as `SavePreferences`.
-- **No Scene test opens the picker or the menu by clicking, or chooses a tuning.** A probe showed `click` followed by the two `Mount.resolve` steps works.
-- **Nothing automated checks that stack frames resolve.** The proof is a test report from production, by hand (see `FINDINGS.md`, "Source maps resolved one line off").
+Worked through on 2026-11-26 (`docs/superpowers/specs/2026-11-26-test-debt-design.md`). What is left:
+
+- **A reading tick that finds no microphone is untested.** `measureInput` in `src/main.ts` emits nothing when `Microphone.get` fails with `ResourceNotAvailable`. That happens only in development, when a reload restores a Model that is already `Listening` before the microphone is open. A test cannot get there: a runtime started from `init` is never `Listening` without a microphone, and supplying the missing service by hand needs a field of the resource's tag that Foldkit marks internal (`FINDINGS.md`, "The real app runs in happy-dom"). The rest of the readings stream is covered by `src/app.runtime.test.ts`.
+- **Nothing automated checks that stack frames resolve, and nothing in the suite can.** A frame is resolved by Sentry, from source maps that only a Vercel build uploads, so a check has to send a report to the real service from a real deployment. It stays a check by hand: after changing the version of `@sentry/vite-plugin`, or how the build makes or uploads source maps, send one test report from production (make `getUserMedia` reject with an error name the app does not know: `AGENTS.md`, "Error reporting"), check in Sentry that its frames name files under `src/` at the right lines, and resolve the issue (`FINDINGS.md`, "Source maps resolved one line off").
 
 ## Error reporting
 
@@ -60,8 +55,7 @@ Found by the review of the routing change on 2026-11-25, and left as they were.
 - **With the tuning list open, the first click on the how-to link only closes the list.** It is the Listbox's outside-click behaviour.
 - **Leaving while the browser is still asking for the microphone.** If permission is then granted, the microphone opens and closes at once, and the browser's indicator may blink on a page with no tuner. Coming back and pressing On / Off during that time shows "starting" without asking again until the first request settles.
 - **The script is downloaded again after every deploy,** although a browser now keeps it for a year, because every deploy gives it a new name. Two causes are left (`FINDINGS.md`, "Three things rename the script on a deploy that did not change it"). Foldkit's build id is random per build: the plugin takes one from the app (`foldkit({ buildId })`), and it would have to be made from the contents of the files the script is built from, not from the commit. And the Sentry plugin writes the commit into the script as the release: that needs `release.inject: false`, the commit written into each page by `src/entry.server.ts`, and `initSentry` reading it from the page, then a test report from the live site to prove reports still carry a release. Both are needed, or neither helps. The gain is small while nearly every deploy changes the script anyway: 1 of the 19 commits on `main` up to 2026-11-26 would have kept it.
-- **The title is tested as `pageTitle`, not as what `view` returns.** A `view` that ignored `pageTitle` would pass every test.
-- **No automated test clicks through.** Nothing covers the `routing` option in `entry.ts` or what the two navigation Commands do when run. The check is by hand in headless Chrome.
+- **`src/entry.ts` and the takeover of a prerendered page are outside the suite.** Since 2026-11-26 a test clicks through the real app in a running runtime, back and forward included, and runs both navigation Commands (`src/app.runtime.test.ts`). Two things it cannot do. It cannot import `entry.ts`, which starts Sentry and the analytics and hydrates: the test wires the app itself, with its own copy of the two lines of the `routing` option, so a mistake in `entry.ts` that still compiles would pass. And it starts the app with `start()`, which draws into an empty container, where the live site uses `Runtime.hydrate` over the HTML the build wrote. A click through a hydrated page of a real build is still checked by hand in headless Chrome, as are scrolling to the top of a new page and anything to do with layout (`FINDINGS.md`, "Checking the real page in headless Chrome, with and without a microphone").
 
 ## Look
 

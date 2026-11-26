@@ -18,13 +18,16 @@
 //     label.
 // The other test files check the plain modules (`pitch`, `tuning`,
 // `preferences`, `microphone`, `sentry`, `route` and storage), and
-// `src/view.test.ts` checks the page titles, which a scene cannot see.
+// `src/view.test.ts` checks the page titles and canonical addresses, which
+// a scene cannot see.
 //
-// The crash screen (`src/crash.ts`) has two files. `src/crash.scene.test.ts`
-// is a Scene like the others. `src/crash.runtime.test.ts` is the one test
-// that does start a running app: what a click does after a crash is the
-// Foldkit runtime's doing, so it boots a small app in happy-dom and crashes
-// it.
+// Two files do start a running app, because what they test is the Foldkit
+// runtime's doing. `src/app.runtime.test.ts` boots the real app in
+// happy-dom, clicks through its pages and switches the tuner on with a
+// stand-in for the microphone. `src/crash.runtime.test.ts` boots a small
+// app and crashes it, to see what a click does afterwards. The crash screen
+// (`src/crash.ts`) also has `src/crash.scene.test.ts`, a Scene like the
+// others.
 
 // The same `defineConfig` idea as in `vite.config.ts`, from Vitest's own
 // entry point so that the `test` field is typed.
@@ -41,8 +44,9 @@ export default defineConfig({
     // `document`. happy-dom is a simulated browser environment that supplies
     // them. Some tests need one: `sentry.test.ts` calls `initSentry`, which
     // reads `window.location.hostname` (it is `localhost` here),
-    // `storage.test.ts` uses `localStorage`, and `crash.runtime.test.ts`
-    // has a Foldkit runtime draw into the document and clicks its links.
+    // `storage.test.ts` uses `localStorage`, and the two `runtime` tests
+    // have a Foldkit runtime draw into the document and click its links.
+    // `app.runtime.test.ts` also uses its `history` and `location`.
     environment: 'happy-dom',
     // Files run before each test file. This one registers Foldkit's Scene
     // matchers: see `src/vitest-setup.ts`.
