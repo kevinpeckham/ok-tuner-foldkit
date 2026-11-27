@@ -14,6 +14,8 @@
 //   Commands          one-shot side effects, described here and run by the
 //                     runtime (save the preferences, report a problem, wait
 //                     1.2 seconds)
+//   a Mount           code tied to one element of the page, here the A4
+//                     field, for as long as the element is there
 //   managedResources  the microphone, which exists only while the Model says
 //                     the tuner is starting or listening
 //   subscriptions     the stream of readings, which runs only while the Model
@@ -92,6 +94,7 @@ import {
   Command,
   Dom,
   ManagedResource,
+  Mount,
   type Runtime,
   Subscription,
   Update,
@@ -105,6 +108,14 @@ import { Url, toString as urlToString } from 'foldkit/url'
 import { BrowserKeyValueStore } from '@effect/platform-browser'
 import { Listbox, Popover } from '@foldkit/ui'
 
+import {
+  type Announcement,
+  Announcer,
+  SILENT_ANNOUNCER,
+  intonationOf,
+  stepAnnouncer,
+  wholeCents,
+} from './intonation'
 import {
   Microphone,
   MicrophoneFailure,
@@ -135,13 +146,9 @@ import { type Tuning } from './tuning'
 // Stem Shovel tuner this app is a port of (the tuner design, "Update: the
 // tuner's behaviour").
 
-// A cent is a hundredth of a semitone. A needle within this many cents of the
-// note counts as in tune. It is exported for the view, which decides what to
-// show as "in tune". `update` never reads it. The view applies it to the
-// needle rounded to a whole cent, the number the page prints, so that the
-// number and the word always agree: the one place that does so is IN TUNE
-// in src/view.ts.
-export const IN_TUNE_CENTS = 5
+// One number is not here: how many cents from the note still counts as in
+// tune. It is `IN_TUNE_CENTS` in src/intonation.ts, beside the one rule that
+// reads it, which the view and `update` both call.
 
 // A reading more than this many cents from where the needle is counts as a
 // new note, and the needle jumps straight to it. See `moveNeedle`.
@@ -256,6 +263,15 @@ export const TunerState = defineTaggedUnion({
     needleCents: Schema.Number,
     // How many readings in a row have found no pitch. See `hearNothing`.
     quietTicks: Schema.Number,
+    // What a screen reader is told, and what it is about to be told: the
+    // note and whether it is flat, in tune or sharp. It is real state, not
+    // something the view could work out, because it depends on the readings
+    // before this one: a note is spoken only once it has held steady for a
+    // third of a second. `update` steps it with every reading
+    // (`shownAnnouncement` below), and the Schema and the rule are in
+    // src/intonation.ts. It lives inside this variant so that a tuner which
+    // is not listening has nothing to say, with no code to clear it.
+    announcer: Announcer,
   },
   // `MicrophoneFailure` is itself a tagged union, declared in
   // src/microphone.ts: Refused, Unsupported or Unexpected.
@@ -282,7 +298,9 @@ export const TuningListbox = Listbox.create<Tuning>()
 // What is not here matters as much. The note's name, its octave, the cents
 // label, "in tune" and the nearest string are not stored. The view works them
 // out from these fields on every render (the tuner design, "Model"), so they
-// can never disagree with them.
+// can never disagree with them. The one exception is the `announcer` inside
+// `Listening`, which holds a note and a state because it has to remember
+// what the screen showed over the last few readings.
 export const Model = Schema.Struct({
   // Which page is showing (src/route.ts). `AppRoute` is a Schema, as every
   // field of the Model must be. Only the ChangedUrl Message changes it.
@@ -330,7 +348,8 @@ export type Model = typeof Model.Type
 //
 // The names follow Foldkit's convention (FOLDKIT.md, "Message Layout"): a
 // verb in the past tense comes first, and it says where the fact came from.
-//   Clicked*, Updated*    the person did something in the view
+//   Clicked*, Updated*,   the person did something in the view
+//   Pressed*
 //   Succeeded*, Failed*   the two outcomes of work that can go wrong
 //   Completed*            the result of a Command with nothing more to say
 //                         than that it ran
@@ -341,7 +360,7 @@ export type Model = typeof Model.Type
 // in SucceededSavePreferences or FailedSavePreferences, and ReportProblem in
 // CompletedReportProblem.
 //
-// There is no "NoOp" Message, and FOLDKIT.md forbids one. Seven of the
+// There is no "NoOp" Message, and FOLDKIT.md forbids one. Eight of the
 // Messages below change nothing in the Model (ReleasedMicrophone, the two
 // results of SavePreferences, and every Completed* except
 // CompletedLoadPreferences and CompletedWaitBeforeSlowStartHint). Each
@@ -369,6 +388,10 @@ export const Message = defineMessageUnion({
   GotA4PopoverMessage: { message: Popover.Message },
   // From the view: the text in the A4 field changed.
   UpdatedA4Input: { value: Schema.String },
+  // From the view: Tab was pressed in the settings menu, in a place where
+  // the browser's own Tab would take focus to the far end of the page (see
+  // `update`).
+  PressedTabInSettingsMenu: {},
   // From the LoadPreferences Command, once at start-up: the saved tuning
   // and A4, or the defaults if nothing usable is saved.
   CompletedLoadPreferences: { preferences: Preferences },
@@ -392,6 +415,8 @@ export const Message = defineMessageUnion({
   CompletedLoadExternal: {},
   // From the FocusPageHeading Command: it ran.
   CompletedFocusPageHeading: {},
+  // From the AttachA4SelectOnFocus Mount: it is in place (see MOUNT).
+  CompletedAttachA4SelectOnFocus: {},
   // From the WaitBeforeSlowStartHint Command: its 1.2 seconds are up.
   // `attempt` is the start the timer was set for, which may no longer be
   // the one in progress.
@@ -695,20 +720,93 @@ export const WaitBeforeSlowStartHint = Command.define(
   },
 )
 
+// MOUNT
+
+// A Mount is code that runs against one real element of the page, for as
+// long as that element is there. It is the third kind of side effect in
+// this file, after Commands and the managed resource, and the one for work
+// that needs the element itself: the view stays a description, and attaches
+// the Mount to an element as an attribute (`h.OnMount(...)`). The runtime
+// runs `execute` when the element is put in the page, handing it the
+// element, and runs the clean-up when the element is taken out.
+//
+// `Mount.define(name, { messages, execute })` is written like
+// `Command.define`. `execute` returns an Effect that ends in one of the
+// listed Messages, which says the Mount is in place.
+//
+// This one makes the A4 field select its text whenever it takes focus. The
+// settings menu puts focus in the field as it opens (`focusSelector` in
+// src/view.ts), and a field focused from code keeps its text unselected,
+// with the caret after it: typing 442 gave "440442". A field reached with
+// the Tab key has its text selected by the browser, so that typing replaces
+// it, and this gives the same however focus arrives.
+//
+// `Effect.acquireRelease(acquire, release)` pairs a set-up with its
+// clean-up. The set-up adds a listener for the `focus` event and returns
+// it, and the clean-up, which the runtime runs when the field leaves the
+// page, removes that same listener. `element` is typed as a plain Element,
+// hence the check that it is an input before `select()` is called.
+//
+// `@foldkit/ui` does exactly this for its Combobox
+// (`AttachComboboxSelectOnFocus`), which is where the shape comes from.
+export const AttachA4SelectOnFocus = Mount.define('AttachA4SelectOnFocus', {
+  messages: [Message.CompletedAttachA4SelectOnFocus],
+  execute: ({ element }) =>
+    Effect.gen(function* () {
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const selectText = () => {
+            if (element instanceof HTMLInputElement) {
+              element.select()
+            }
+          }
+          element.addEventListener('focus', selectText)
+
+          return selectText
+        }),
+        selectText =>
+          Effect.sync(() => element.removeEventListener('focus', selectText)),
+      )
+
+      return Message.CompletedAttachA4SelectOnFocus()
+    }),
+})
+
 // UPDATE
 
 // Everything from here down to `update` is a helper for it. All of them are
 // pure: they take values and return new ones.
 
 // The Listening state as the tuner enters it: silent, nothing heard, the
-// needle in the centre.
+// needle in the centre, and nothing said to a screen reader.
 const freshListening = (): TunerState =>
   TunerState.Listening({
     level: 0,
     maybeReading: Option.none(),
     needleCents: 0,
     quietTicks: 0,
+    announcer: SILENT_ANNOUNCER,
   })
+
+// What the screen shows for a reading and a needle, as the announcer needs
+// it: which note, and whether it is flat, in tune or sharp. None when there
+// is no reading, because the screen is then blank.
+//
+// This derives exactly what the view derives (`toDisplay` in src/view.ts):
+// the note from the reading's frequency and A4, and the state from the
+// needle rounded to a whole cent, through the one rule in
+// src/intonation.ts. So what is spoken is always something the screen
+// showed. `Option.map` applies the function to the reading if there is one
+// and passes None through.
+const shownAnnouncement = (
+  maybeReading: Option.Option<Pitch>,
+  needleCents: number,
+  a4: number,
+): Option.Option<Announcement> =>
+  Option.map(maybeReading, ({ frequency }) => ({
+    midi: noteFromFrequency(frequency, a4).midi,
+    intonation: intonationOf(wholeCents(needleCents)),
+  }))
 
 // Needle smoothing. `needleCents` is where the needle is now, and `cents` is
 // where the newest reading puts it.
@@ -725,7 +823,8 @@ const moveNeedle = (needleCents: number, cents: number): number =>
 
 // A reading that found a pitch, while Listening. It returns the next
 // Listening state: the new level and pitch, the needle moved towards the new
-// reading, and the count of quiet readings back at zero.
+// reading, the count of quiet readings back at zero, and the announcer
+// stepped with what the screen will now show.
 //
 // `noteFromFrequency(frequency, a4).cents` (src/pitch.ts) is how far the
 // pitch is from the nearest note, from -50 to 50 cents, with A4 at the
@@ -736,16 +835,24 @@ const hearPitch = (
   a4: number,
   level: number,
   pitch: Pitch,
-): TunerState =>
-  TunerState.Listening({
+): TunerState => {
+  const maybeReading = Option.some(pitch)
+  const needleCents = moveNeedle(
+    listening.needleCents,
+    noteFromFrequency(pitch.frequency, a4).cents,
+  )
+
+  return TunerState.Listening({
     level,
-    maybeReading: Option.some(pitch),
-    needleCents: moveNeedle(
-      listening.needleCents,
-      noteFromFrequency(pitch.frequency, a4).cents,
-    ),
+    maybeReading,
+    needleCents,
     quietTicks: 0,
+    announcer: stepAnnouncer(
+      listening.announcer,
+      shownAnnouncement(maybeReading, needleCents, a4),
+    ),
   })
+}
 
 // A reading that found no pitch, while Listening: silence, or sound with no
 // clear note in it. The display does not go blank the moment a note fades.
@@ -753,22 +860,32 @@ const hearPitch = (
 // readings in a row (about 0.6 seconds) have been quiet. Then the reading is
 // cleared and the needle goes back to the centre. The level is updated
 // either way, so the level bar keeps moving.
-const hearNothing = (listening: Listening, level: number): TunerState => {
+//
+// The announcer follows the screen. While the note is held it is still what
+// is shown, so the announcer is stepped with it and nothing new is said.
+// When the screen clears, the announcer is stepped with nothing, which
+// empties the live region: the next note is then spoken even if it is the
+// one that was sounding before (`stepAnnouncer` in src/intonation.ts).
+const hearNothing = (
+  listening: Listening,
+  a4: number,
+  level: number,
+): TunerState => {
   const quietTicks = listening.quietTicks + 1
+  const isCleared = quietTicks > QUIET_TICKS_HELD
+  const maybeReading = isCleared ? Option.none() : listening.maybeReading
+  const needleCents = isCleared ? 0 : listening.needleCents
 
-  return quietTicks > QUIET_TICKS_HELD
-    ? TunerState.Listening({
-        level,
-        maybeReading: Option.none(),
-        needleCents: 0,
-        quietTicks,
-      })
-    : TunerState.Listening({
-        level,
-        maybeReading: listening.maybeReading,
-        needleCents: listening.needleCents,
-        quietTicks,
-      })
+  return TunerState.Listening({
+    level,
+    maybeReading,
+    needleCents,
+    quietTicks,
+    announcer: stepAnnouncer(
+      listening.announcer,
+      shownAnnouncement(maybeReading, needleCents, a4),
+    ),
+  })
 }
 
 // Returns a copy of the Model with a new power state.
@@ -1128,7 +1245,8 @@ export const update = (model: Model, message: Message) =>
     // where `Option.match` sends it one of two ways: no pitch was found, or
     // one was. In every other state the tuner is returned as it was.
     // `model.a4` is passed in because the same frequency is a different
-    // number of cents from the note when A4 is moved.
+    // number of cents from the note when A4 is moved, and may be a
+    // different note, which is what the announcer is told.
     MeasuredInput: ({ level, maybePitch }) => ({
       model: withTuner(
         model,
@@ -1138,7 +1256,7 @@ export const update = (model: Model, message: Message) =>
           Starting: starting => starting,
           Listening: listening =>
             Option.match(maybePitch, {
-              onNone: () => hearNothing(listening, level),
+              onNone: () => hearNothing(listening, model.a4, level),
               onSome: pitch => hearPitch(listening, model.a4, level, pitch),
             }),
           Failed: failed => failed,
@@ -1155,6 +1273,23 @@ export const update = (model: Model, message: Message) =>
 
     // The A4 field changed: see `applyA4Input`.
     UpdatedA4Input: ({ value }) => applyA4Input(model, value),
+
+    // Tab was pressed in the settings menu. The menu closes, and focus goes
+    // back to the settings button, exactly as with Escape: the step is the
+    // Popover's own `close`, folded like any other child update
+    // (`foldA4PopoverClose` above). Its one Command, the Popover's
+    // `FocusButton`, moves the focus, and its `Closed` OutMessage puts the
+    // applied A4 back in the field. On a closed menu the step does nothing.
+    //
+    // Why the app steps in at all. An open Popover moves its panel to the
+    // start of the document, so that no ancestor can clip it (a "portal").
+    // The Tab key goes by the order of the document, not by where things
+    // are drawn. Left alone, Tab from the A4 field landed on the first link
+    // of the page and Shift+Tab on the last, with the menu closing behind:
+    // seen in headless Chrome (FINDINGS.md, "Tab in the settings menu went
+    // to the far end of the page"). The view stops the browser's own move
+    // (`a4FieldView` in src/view.ts) and sends this Message instead.
+    PressedTabInSettingsMenu: () => foldA4PopoverClose(model),
 
     // The saved preferences have been read (see `init`). They replace the
     // defaults the Model started with. `a4Input`, the text in the A4 field,
@@ -1241,6 +1376,9 @@ export const update = (model: Model, message: Message) =>
         isLeavingTuner ? foldA4PopoverClose : current => ({ model: current }),
       ])
     },
+
+    // The Mount on the A4 field is in place. Nothing follows from that.
+    CompletedAttachA4SelectOnFocus: () => ({ model }),
 
     // The three routing Commands ran. Nothing follows from that.
     CompletedNavigateInternal: () => ({ model }),

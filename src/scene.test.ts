@@ -58,7 +58,7 @@
 // 1. As in a story, a Command is only data: its Effect never runs, and every
 //    Command that `update` returns must be resolved before the scene ends.
 // 2. Mounts are held to the same rule: every Mount in the drawn page must be
-//    given its result (see `acknowledgeSettingsMenu` near the end). And a
+//    given its result (see MOUNTS, after the fixtures). And a
 //    Mount whose element then leaves the page must be acknowledged with
 //    `Mount.expectEnded` (see OPENING BY A CLICK, at the end).
 // 3. A step that sends a Message (an interaction or a ManagedResource step)
@@ -104,7 +104,10 @@ import {
   click,
   expect,
   expectAll,
+  expectHandled,
+  expectIgnored,
   given,
+  keydown,
   label,
   nth,
   role,
@@ -121,7 +124,11 @@ import { describe, test } from 'vitest'
 
 import { Listbox, Popover } from '@foldkit/ui'
 
+// The announcer is the part of the `Listening` state that holds what a
+// screen reader is told. A tuner starts with the silent one.
+import { type Announcement, SILENT_ANNOUNCER } from './intonation'
 import {
+  AttachA4SelectOnFocus,
   Message,
   type Model,
   ReportProblem,
@@ -185,6 +192,7 @@ const listening = (fields: ListeningFields = {}): Model =>
         maybeReading: Option.none(),
         needleCents: 0,
         quietTicks: 0,
+        announcer: SILENT_ANNOUNCER,
         ...fields,
       }),
   })
@@ -239,6 +247,69 @@ const timerSetAside = Command.resolve(
 const withTuning = (model: Model, tuningId: string): Model =>
   modifyFields(model, { tuningId: () => tuningId })
 
+// MOUNTS
+//
+// A Mount is work tied to an element of the page. The view attaches one
+// with `h.OnMount(...)`, and in the browser the runtime starts it when the
+// element appears and stops it when the element goes. The open settings
+// menu has three. Two are the Popover's: `AnchorPopover` places the panel
+// against its button and then puts focus in the A4 field, and
+// `PortalPopoverBackdrop` moves the backdrop to another place in the
+// document. The third is the app's own, on the A4 field:
+// `AttachA4SelectOnFocus` selects the field's text whenever the field takes
+// focus, so that typing replaces the number.
+//
+// Scene has no real elements, so it runs none of them. It finds the Mounts
+// in the page it has drawn and holds them as pending, as it does Commands,
+// until the test gives each its result Message with
+// `Mount.resolve(definition, resultMessage)`. While a Mount is pending no
+// interaction may run, and a scene that ends with one pending fails.
+//
+// The Popover's result Messages are the Popover's own,
+// `Popover.Message.CompletedAnchorPopover()`, not wrapped in the app's
+// `GotA4PopoverMessage`. Scene applies the wrapping itself. Passing the
+// wrapped Message is a type error and a schema error (FINDINGS.md, "Scene's
+// `Mount.resolve` takes the child component's own Message"). The app's own
+// Mount reports with one of the app's Messages.
+//
+// The three steps are kept in an array and spread into each scene that
+// opens the menu. Steps are ordinary values, so they can be shared like
+// this.
+const acknowledgeSettingsMenu = [
+  Mount.resolve(
+    Popover.AnchorPopover,
+    Popover.Message.CompletedAnchorPopover(),
+  ),
+  Mount.resolve(
+    Popover.PortalPopoverBackdrop,
+    Popover.Message.CompletedPortalPopoverBackdrop(),
+  ),
+  Mount.resolve(
+    AttachA4SelectOnFocus,
+    Message.CompletedAttachA4SelectOnFocus(),
+  ),
+]
+
+// The other end of the same three. When the menu closes, their elements
+// leave the page, which in a browser is when the runtime runs a Mount's
+// clean-up. A scene in which a Mount leaves the page fails at its end
+// unless a step has said so, and `Mount.expectEnded` is that step. It
+// throws if a Mount it names is still on the page.
+//
+// NOTE: this is a function that makes the step afresh each time, where
+// `acknowledgeSettingsMenu` above is one array shared by every scene. A
+// `Mount.expectEnded` step can be used once. It crosses the Mounts off its
+// own list as it finds them, so a second scene given the same step finds
+// the list empty, acknowledges nothing, and fails at its end with "Mounts
+// that ended without being acknowledged" (FINDINGS.md, "A
+// `Mount.expectEnded` step works once").
+const settingsMenuGone = () =>
+  Mount.expectEnded(
+    Popover.AnchorPopover,
+    Popover.PortalPopoverBackdrop,
+    AttachA4SelectOnFocus,
+  )
+
 // LOCATORS
 //
 // A locator says how to find an element. It is not the element. Each step
@@ -262,6 +333,9 @@ const powerButton = role('button', { name: 'On / Off' })
 // "somewhere inside". Anything else throws. The needle is decoration, so the
 // view gives it a `data-needle-marker` attribute for this to find.
 const needleMarker = selector('[data-needle-marker]')
+// The big note on the tuner's screen. It has no role or label, so the view
+// gives it a `data-tuner-note` attribute for this to find.
+const noteDisplay = selector('[data-tuner-note]')
 // The string chip that the view marks as nearest to the note being played.
 const litString = selector('[aria-current="true"]')
 // `all.selector(css)` finds every match, not only the first. Its result goes
@@ -272,6 +346,18 @@ const litString = selector('[aria-current="true"]')
 // and a bare `li` counted ten strings where there are six (FINDINGS.md, "Scope a locator to the part of
 // the page it is about").
 const strings = all.selector('[aria-label="Strings"] li')
+// What each chip shows: the note's letter. A chip holds two pieces of text.
+// The letter is drawn and hidden from assistive technology (`aria-hidden`),
+// and the note with its octave ("E2") is off screen and read out. So the
+// letters are found by the attribute that hides them, and a chip's name is
+// checked with `toHaveAccessibleName`, which leaves hidden text out. See
+// "what a screen reader is told" below.
+const letters = all.selector('[aria-label="Strings"] li [aria-hidden="true"]')
+// The tuning picker, whichever tuning it shows. Its accessible name is the
+// word "Tuning", a colon and the chosen tuning's label, so the pattern
+// matches the start. A regular expression may match part of the name, where
+// a string must match all of it.
+const tuningPicker = role('button', { name: /^Tuning: / })
 // The place under the On / Off button where the page says what it is
 // waiting for. `role="status"` is a polite live region: a screen reader
 // reads out what appears in it, once it has finished what it was saying.
@@ -676,17 +762,18 @@ describe('screen', () => {
     scene(
       { update, view },
       given(hearing(110, 3)),
-      // The note display has no role or label, so it is found by its
-      // `aria-live` attribute. The view draws the name ("A") and the octave
-      // ("2") as two elements. `toHaveText` reads all the text inside the
-      // element it is given, joined together, so it sees "A2".
-      expect(selector('[aria-live="polite"]')).toHaveText('A2'),
+      // The view draws the name ("A") and the octave ("2") as two
+      // elements. `toHaveText` reads all the text inside the element it is
+      // given, joined together, so it sees "A2".
+      expect(noteDisplay).toHaveText('A2'),
       expect(text('110.0 Hz · +3 cents · in tune')).toExist(),
       // `expectAll(many).toHaveCount(n)` passes when exactly `n` elements
       // match. Exactly one string is lit...
       expectAll(all.selector('[aria-current="true"]')).toHaveCount(1),
-      // ...and it is the A string.
-      expect(litString).toHaveText('A'),
+      // ...and it is the A string, the one in the second octave.
+      // `toHaveAccessibleName` checks what a screen reader would call the
+      // element, which for a chip is the note with its octave.
+      expect(litString).toHaveAccessibleName('A2'),
     )
   })
 
@@ -852,9 +939,9 @@ describe('strings', () => {
       given(listening()),
       expect(role('list', { name: 'Strings' })).toExist(),
       expectAll(strings).toHaveCount(6),
-      expect(nth(strings, 0)).toHaveText('E'),
-      expect(nth(strings, 1)).toHaveText('A'),
-      expect(nth(strings, 5)).toHaveText('E'),
+      expect(nth(letters, 0)).toHaveText('E'),
+      expect(nth(letters, 1)).toHaveText('A'),
+      expect(nth(letters, 5)).toHaveText('E'),
     )
   })
 
@@ -866,10 +953,10 @@ describe('strings', () => {
       { update, view },
       given(withTuning(listening(), 'ukulele')),
       expectAll(strings).toHaveCount(4),
-      expect(nth(strings, 0)).toHaveText('G'),
-      expect(nth(strings, 1)).toHaveText('C'),
-      expect(nth(strings, 2)).toHaveText('E'),
-      expect(nth(strings, 3)).toHaveText('A'),
+      expect(nth(letters, 0)).toHaveText('G'),
+      expect(nth(letters, 1)).toHaveText('C'),
+      expect(nth(letters, 2)).toHaveText('E'),
+      expect(nth(letters, 3)).toHaveText('A'),
     )
   })
 
@@ -881,10 +968,10 @@ describe('strings', () => {
       { update, view },
       given(withTuning(listening(), 'mandolin')),
       expectAll(strings).toHaveCount(4),
-      expect(nth(strings, 0)).toHaveText('G'),
-      expect(nth(strings, 1)).toHaveText('D'),
-      expect(nth(strings, 2)).toHaveText('A'),
-      expect(nth(strings, 3)).toHaveText('E'),
+      expect(nth(letters, 0)).toHaveText('G'),
+      expect(nth(letters, 1)).toHaveText('D'),
+      expect(nth(letters, 2)).toHaveText('A'),
+      expect(nth(letters, 3)).toHaveText('E'),
     )
   })
 
@@ -896,11 +983,11 @@ describe('strings', () => {
       { update, view },
       given(withTuning(listening(), 'banjo')),
       expectAll(strings).toHaveCount(5),
-      expect(nth(strings, 0)).toHaveText('G'),
-      expect(nth(strings, 1)).toHaveText('D'),
-      expect(nth(strings, 2)).toHaveText('G'),
-      expect(nth(strings, 3)).toHaveText('B'),
-      expect(nth(strings, 4)).toHaveText('D'),
+      expect(nth(letters, 0)).toHaveText('G'),
+      expect(nth(letters, 1)).toHaveText('D'),
+      expect(nth(letters, 2)).toHaveText('G'),
+      expect(nth(letters, 3)).toHaveText('B'),
+      expect(nth(letters, 4)).toHaveText('D'),
     )
   })
 
@@ -915,7 +1002,7 @@ describe('strings', () => {
         all.selector('[aria-label="Strings"] [aria-current]'),
       ).toHaveCount(1),
       expect(nth(strings, 0)).toHaveAttr('aria-current', 'true'),
-      expect(title('392.00 Hz')).toHaveText('G'),
+      expect(title('392.00 Hz')).toHaveAccessibleName('G4'),
     )
   })
 
@@ -929,15 +1016,15 @@ describe('strings', () => {
     scene(
       { update, view },
       given(withTuning(listening(), 'banjo')),
-      expect(selector('[aria-label="Strings"] [key="banjo-0"]')).toHaveText(
-        'G',
-      ),
-      expect(selector('[aria-label="Strings"] [key="banjo-1"]')).toHaveText(
-        'D',
-      ),
-      expect(selector('[aria-label="Strings"] [key="banjo-4"]')).toHaveText(
-        'D',
-      ),
+      expect(
+        selector('[aria-label="Strings"] [key="banjo-0"]'),
+      ).toHaveAccessibleName('G4'),
+      expect(
+        selector('[aria-label="Strings"] [key="banjo-1"]'),
+      ).toHaveAccessibleName('D3'),
+      expect(
+        selector('[aria-label="Strings"] [key="banjo-4"]'),
+      ).toHaveAccessibleName('D4'),
     )
   })
 
@@ -951,10 +1038,8 @@ describe('strings', () => {
     scene(
       { update, view },
       given(withTuning(hearing(110, 0), 'chromatic')),
-      expect(role('button', { name: 'Tuning' })).toContainText(
-        'Chromatic: Any Instrument',
-      ),
-      expect(selector('[aria-live="polite"]')).toHaveText('A2'),
+      expect(tuningPicker).toContainText('Chromatic: Any Instrument'),
+      expect(noteDisplay).toHaveText('A2'),
       expect(text('110.0 Hz · 0 cents · in tune')).toExist(),
       expect(role('list', { name: 'Strings' })).toBeAbsent(),
       expect(litString).toBeAbsent(),
@@ -968,7 +1053,7 @@ describe('strings', () => {
     scene(
       { update, view },
       given(listening()),
-      expect(title('82.41 Hz')).toHaveText('E'),
+      expect(title('82.41 Hz')).toHaveAccessibleName('E2'),
     )
   })
 
@@ -978,7 +1063,448 @@ describe('strings', () => {
     scene(
       { update, view },
       given(modifyFields(listening(), { a4: () => 442 })),
-      expect(title('82.78 Hz')).toHaveText('E'),
+      expect(title('82.78 Hz')).toHaveAccessibleName('E2'),
+    )
+  })
+})
+
+// What the page says to someone who cannot see it. Three things are pinned
+// here: the one live region and its text, the names of the string chips,
+// and the names of the controls.
+//
+// A scene sees roles, names and attributes, which is what a browser builds
+// its accessibility tree from. It cannot hear a screen reader, and neither
+// could anyone when this was written: FINDINGS.md, "What is still unheard",
+// lists what a person with one should check.
+describe('what a screen reader is told', () => {
+  // The live region: an element whose changes of text a screen reader
+  // reads out. It is off screen and has no role, so the view marks it with
+  // a `data-tuner-announcement` attribute for this to find.
+  const announcement = selector('[data-tuner-announcement]')
+  // Every live region on the page, of any kind: an element with
+  // `aria-live`, or with a role that makes it one.
+  const liveByAttribute = all.selector('[aria-live]')
+
+  // A Model that is listening, with the announcer saying something. The
+  // announcer is real state, kept by `update` (see "what is spoken" in
+  // story.test.ts for when it changes). A scene is given a Model, so it
+  // can put the words there directly.
+  const speaking = (model: Model, spoken: Announcement): Model =>
+    modifyFields(model, {
+      tuner: tuner =>
+        TunerState.match(tuner, {
+          Booting: booting => booting,
+          Off: off => off,
+          Starting: starting => starting,
+          Listening: fields =>
+            TunerState.Listening({
+              ...fields,
+              announcer: {
+                maybeSpoken: Option.some(spoken),
+                maybeCandidate: Option.some(spoken),
+                heldReadings: 7,
+              },
+            }),
+          Failed: failed => failed,
+        }),
+    })
+
+  // The region has to be in the page before it has anything to say: a
+  // screen reader announces a change inside a region it already knows
+  // about, and may say nothing when a region arrives with its text in it.
+  // So it is there in every state, the very first drawing included, empty.
+  // `toHaveText('')` passes only when the element holds no text at all.
+  test.each([
+    ['before the app is running', firstModel],
+    ['off', offModel],
+    ['starting', startingModel],
+    ['listening and hearing nothing', listening()],
+  ])('%s: the region is in the page, polite, whole, and empty', (_, model) => {
+    scene(
+      { update, view },
+      given(model),
+      expect(announcement).toExist(),
+      expect(announcement).toHaveAttr('aria-live', 'polite'),
+      // `aria-atomic="true"`: the whole text is read, not only the part
+      // that changed.
+      expect(announcement).toHaveAttr('aria-atomic', 'true'),
+      // Tailwind's class for "read out, and off screen".
+      expect(announcement).toHaveClass('sr-only'),
+      expect(announcement).toHaveText(''),
+    )
+  })
+
+  // The words are the note with its octave and one of three states.
+  test.each([
+    [{ midi: 40, intonation: 'Flat' }, 'E2, flat'],
+    [{ midi: 40, intonation: 'InTune' }, 'E2, in tune'],
+    [{ midi: 64, intonation: 'Sharp' }, 'E4, sharp'],
+    [{ midi: 54, intonation: 'InTune' }, 'F sharp 3, in tune'],
+  ] as const)('the region says what the Model holds: %o', (spoken, words) => {
+    scene(
+      { update, view },
+      given(speaking(hearing(82.41, 0), spoken)),
+      expect(announcement).toHaveText(words),
+    )
+  })
+
+  // What is shown and what is spoken are separate on purpose: the screen
+  // follows every reading, and the region lags it by a third of a second.
+  // Here the screen already shows a sharp note while the region still says
+  // nothing, as it would just after a pluck.
+  test('the region says nothing until the Model says so, whatever the screen shows', () => {
+    scene(
+      { update, view },
+      given(hearing(440, 12)),
+      expect(text('440.0 Hz · +12 cents · sharp')).toExist(),
+      expect(announcement).toHaveText(''),
+    )
+  })
+
+  // One region speaks for the reading, and nothing else on the tuner's
+  // screen is live. The big note was a live region until 0.8.0. Left as
+  // one, a screen reader would say the note twice. The detail line changes
+  // twenty times a second and must never be one.
+  test('the note and the detail line are not live regions', () => {
+    scene(
+      { update, view },
+      given(speaking(hearing(110, 3), { midi: 45, intonation: 'InTune' })),
+      expectAll(liveByAttribute).toHaveCount(1),
+      expect(noteDisplay).toHaveText('A2'),
+      expect(noteDisplay).not.toHaveAttr('aria-live'),
+      expect(noteDisplay).not.toHaveAttr('aria-atomic'),
+      // The other region on the page is the waiting line's, a `status`,
+      // which is empty unless a start is slow. The failure line's `alert`
+      // is absent unless the microphone failed.
+      expectAll(all.role('status')).toHaveCount(1),
+      expect(statusRegion).toHaveText(''),
+      expect(role('alert')).toBeAbsent(),
+    )
+  })
+
+  // The chips. Each shows one letter, and is called by the note with its
+  // octave, so the two E strings of a guitar can be told apart by ear.
+  // `it.each` rows: the tuning, what the chips show, what they are called.
+  test.each([
+    ['standard', 'E A D G B E', ['E2', 'A2', 'D3', 'G3', 'B3', 'E4']],
+    ['banjo', 'G D G B D', ['G4', 'D3', 'G3', 'B3', 'D4']],
+    ['mandolin', 'G D A E', ['G3', 'D4', 'A4', 'E5']],
+    [
+      'half-down',
+      'D♯ G♯ C♯ F♯ A♯ D♯',
+      [
+        'D sharp 2',
+        'G sharp 2',
+        'C sharp 3',
+        'F sharp 3',
+        'A sharp 3',
+        'D sharp 4',
+      ],
+    ],
+  ])('%s: the chips show %s and are named by octave', (id, shown, names) => {
+    const shownLetters = shown.split(' ')
+
+    scene(
+      { update, view },
+      given(withTuning(listening(), id)),
+      expectAll(strings).toHaveCount(names.length),
+      ...names.map((name, index) =>
+        expect(nth(strings, index)).toHaveAccessibleName(name),
+      ),
+      // The letter is all that is drawn: one hidden-from-assistive-
+      // technology span in each chip, holding the letter alone.
+      expectAll(letters).toHaveCount(names.length),
+      ...shownLetters.map((letter, index) =>
+        expect(nth(letters, index)).toHaveText(letter),
+      ),
+    )
+  })
+
+  // The list keeps its role and its name. `role="list"` is written out
+  // because Safari with VoiceOver stops calling a `<ul>` a list once its
+  // bullets are styled away.
+  test('the chips are a list named "Strings"', () => {
+    scene(
+      { update, view },
+      given(listening()),
+      expect(role('list', { name: 'Strings' })).toHaveAttr('role', 'list'),
+    )
+  })
+
+  // The lit chip is marked with `aria-current`, which `role` can ask for.
+  // 329.63 Hz is the high E of a guitar: of the two chips that show E, the
+  // one called E4 is current and the one called E2 is not.
+  test('the lit chip is the current one, by name', () => {
+    scene(
+      { update, view },
+      given(hearing(329.63, 0)),
+      expect(role('listitem', { name: 'E4', current: true })).toExist(),
+      expect(role('listitem', { name: 'E2', current: true })).toBeAbsent(),
+      expectAll(
+        all.selector('[aria-label="Strings"] [aria-current]'),
+      ).toHaveCount(1),
+    )
+  })
+
+  // What the tuner shows of its tuning while it is off. The picker's text
+  // and the chips' letters are dimmed and can still be read: which tuning
+  // is chosen is information. A scene sees classes, not colours, so this
+  // pins the classes whose contrast was measured in headless Chrome: 5.2
+  // to 1 for the picker's text and 3.4 to 1 for a letter (FINDINGS.md,
+  // "The chosen tuning can be read while the tuner is off"). A change to
+  // either class needs a new measurement.
+  test('off: the chosen tuning is dimmed, not hidden', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      expect(tuningPicker).toHaveClass('text-blue-100/55'),
+      expect(nth(letters, 0)).toHaveClass('opacity-70'),
+      expect(nth(letters, 5)).toHaveClass('opacity-70'),
+    )
+  })
+
+  test('listening: the tuning is at full strength', () => {
+    scene(
+      { update, view },
+      given(listening()),
+      expect(tuningPicker).toHaveClass('text-blue-100/80'),
+      expect(nth(letters, 0)).toHaveClass('opacity-100'),
+    )
+  })
+
+  // The failure line's colour is this project's own, `failure` in
+  // `src/styles.css`: the darkest red that still reads as one, 4.8 to 1
+  // at the foot of the pedal. Measured, like the two above.
+  test('the failure line is drawn in the failure colour', () => {
+    scene(
+      { update, view },
+      given(
+        modifyFields(offModel, {
+          tuner: () =>
+            TunerState.Failed({ failure: MicrophoneFailure.Refused() }),
+        }),
+      ),
+      expect(role('alert')).toHaveText(REFUSED),
+      expect(role('alert')).toHaveClass('text-failure'),
+    )
+  })
+
+  // The picker's name says what it is and what is chosen, and it contains
+  // the words on the button, whole and in order. It gets there by having
+  // no `aria-label` at all: such a label would replace the button's own
+  // text as its name, which is how the control came to be called "Tuning"
+  // and nothing more.
+  test.each([
+    ['standard', 'Tuning: Guitar - Standard'],
+    ['banjo', 'Tuning: Banjo - Open G'],
+    ['chromatic', 'Tuning: Chromatic: Any Instrument'],
+  ])('the picker on %s is named "%s"', (id, name) => {
+    scene(
+      { update, view },
+      given(withTuning(listening(), id)),
+      expect(role('button', { name })).toExist(),
+      expect(role('button', { name })).not.toHaveAttr('aria-label'),
+      expect(role('button', { name })).not.toHaveAttr('aria-labelledby'),
+    )
+  })
+
+  // While the tuner is off the picker is disabled and still says which
+  // tuning is chosen.
+  test('the disabled picker keeps its name', () => {
+    scene(
+      { update, view },
+      given(offModel),
+      expect(
+        role('button', { name: 'Tuning: Guitar - Standard' }),
+      ).toBeDisabled(),
+    )
+  })
+
+  // The open list is called "Tuning" and each option by its tuning. The
+  // Listbox names its list after its button, which would put the chosen
+  // tuning in the list's name as well. The view points the list at the
+  // word alone, by handing the Listbox an `aria-labelledby` that replaces
+  // the Listbox's own. If a later Foldkit stops letting it, this fails.
+  test('the open list is named "Tuning", and each option by its tuning', () => {
+    scene(
+      { update, view },
+      given(listening()),
+      click(tuningPicker),
+      Command.resolve(
+        Listbox.FocusItems,
+        Listbox.Message.CompletedFocusItems(),
+      ),
+      Mount.resolve(
+        Listbox.AnchorListbox,
+        Listbox.Message.CompletedAnchorListbox(),
+      ),
+      Mount.resolve(
+        Listbox.PortalListboxBackdrop,
+        Listbox.Message.CompletedPortalListboxBackdrop(),
+      ),
+      expect(role('listbox', { name: 'Tuning' })).toExist(),
+      ...TUNINGS.map(tuning =>
+        expect(role('option', { name: tuning.label })).toExist(),
+      ),
+      expect(
+        role('option', { name: 'Guitar - Standard', selected: true }),
+      ).toExist(),
+      // The button's name is unchanged by the list being open.
+      expect(
+        role('button', { name: 'Tuning: Guitar - Standard', expanded: true }),
+      ).toExist(),
+      // Close the list, as the scenes under "controls" do: a scene may not
+      // end with a Mount on the page unacknowledged.
+      click(role('option', { name: 'Guitar - Standard' })),
+      Command.resolveAllExact(
+        [Listbox.FocusButton, Listbox.Message.CompletedFocusButton()],
+        [SavePreferences, Message.SucceededSavePreferences()],
+      ),
+      Mount.expectEnded(Listbox.AnchorListbox, Listbox.PortalListboxBackdrop),
+    )
+  })
+
+  // The settings menu. Its button shows only an icon, so an `aria-label`
+  // is its whole name. The field is a number field, which has the role
+  // `spinbutton`, and its name is the visible label beside it.
+  //
+  // `Mount.expectHas` with a Mount built from its definition checks the
+  // arguments too. `focusSelector` is how the view asks the Popover to put
+  // focus in the field when the menu opens: the panel's Mount focuses the
+  // element that selector finds, once it has placed the panel. A scene
+  // runs no Mount, so this shows only that the view asked. That focus
+  // really lands in the field, and returns to the button on closing, was
+  // checked in headless Chrome.
+  test('the settings menu names its parts, and asks for focus in the A4 field', () => {
+    const settingsMenu = role('button', { name: 'Tuner settings' })
+
+    scene(
+      { update, view },
+      given(listening()),
+      click(settingsMenu),
+      Mount.expectHas(
+        Popover.AnchorPopover({
+          buttonId: 'a4-button',
+          anchor: { placement: 'bottom-end', gap: 4, padding: 8 },
+          focusSelector: '#a4-input',
+          arrowId: 'a4-arrow',
+        }),
+      ),
+      ...acknowledgeSettingsMenu,
+      expect(role('spinbutton', { name: 'A4 (Hz)' })).toHaveAttr(
+        'id',
+        'a4-input',
+      ),
+      // The visible label is a real `<label>` tied to the field.
+      expect(text('A4 (Hz)')).toHaveAttr('htmlFor', 'a4-input'),
+      // The panel can take focus, so it has a role and a name.
+      expect(role('group', { name: 'Tuner settings' })).toExist(),
+      // Closing by the button returns focus to it: the Popover's own
+      // Command, and nothing else.
+      click(settingsMenu),
+      Command.resolveAllExact([
+        Popover.FocusButton,
+        Popover.Message.CompletedFocusButton(),
+      ]),
+      settingsMenuGone(),
+    )
+  })
+
+  // Tab and Shift+Tab in the A4 field close the menu and hand focus back
+  // to the settings button. Left to the browser, Tab would go to the first
+  // link of the page: an open Popover moves its panel to the start of the
+  // document, and the keyboard follows the document.
+  //
+  // `keydown(locator, key, modifiers)` calls the element's keydown
+  // handlers the way `click` calls its click handlers. `expectHandled`
+  // passes when the last interaction called `preventDefault`, which is
+  // what stops the browser from moving focus by itself, and
+  // `expectIgnored` when it did not.
+  test.each([
+    ['Tab', {}],
+    ['Shift+Tab', { shiftKey: true }],
+  ])(
+    '%s in the A4 field closes the menu and returns focus to its button',
+    (_, modifiers) => {
+      const settingsMenu = role('button', { name: 'Tuner settings' })
+      const a4Field = role('spinbutton', { name: 'A4 (Hz)' })
+
+      scene(
+        { update, view },
+        given(listening()),
+        click(settingsMenu),
+        ...acknowledgeSettingsMenu,
+        keydown(a4Field, 'Tab', modifiers),
+        expectHandled(),
+        Command.resolveAllExact([
+          Popover.FocusButton,
+          Popover.Message.CompletedFocusButton(),
+        ]),
+        settingsMenuGone(),
+        expect(settingsMenu).toHaveAttr('aria-expanded', 'false'),
+        expect(a4Field).toBeAbsent(),
+      )
+    },
+  )
+
+  // The panel can hold focus itself, after a click on its padding. From
+  // there Shift+Tab would go to the last link of the page, so it is taken
+  // too, with the same result.
+  test('Shift+Tab on the panel itself closes the menu and returns focus to its button', () => {
+    const settingsMenu = role('button', { name: 'Tuner settings' })
+
+    scene(
+      { update, view },
+      given(listening()),
+      click(settingsMenu),
+      ...acknowledgeSettingsMenu,
+      keydown(role('group', { name: 'Tuner settings' }), 'Tab', {
+        shiftKey: true,
+      }),
+      expectHandled(),
+      Command.resolveAllExact([
+        Popover.FocusButton,
+        Popover.Message.CompletedFocusButton(),
+      ]),
+      settingsMenuGone(),
+      expect(settingsMenu).toHaveAttr('aria-expanded', 'false'),
+    )
+  })
+
+  // Every other key in the field is the browser's: digits, the arrows
+  // that step the number, and Escape, which the panel round the field
+  // answers by closing the menu.
+  test('other keys in the A4 field are left to the browser', () => {
+    const settingsMenu = role('button', { name: 'Tuner settings' })
+    const a4Field = role('spinbutton', { name: 'A4 (Hz)' })
+
+    scene(
+      { update, view },
+      given(listening()),
+      click(settingsMenu),
+      ...acknowledgeSettingsMenu,
+      keydown(a4Field, '4'),
+      expectIgnored(),
+      keydown(a4Field, 'ArrowUp'),
+      expectIgnored(),
+      // Tab on the panel itself goes forward into the field, which is the
+      // browser's to do. (Shift+Tab there is taken: the next scene.)
+      keydown(role('group', { name: 'Tuner settings' }), 'Tab'),
+      expectIgnored(),
+      expect(settingsMenu).toHaveAttr('aria-expanded', 'true'),
+      // Escape, to end the scene with the menu closed. It is sent to the
+      // panel, where the Popover's handler is. In a browser an Escape
+      // pressed in the field travels up to the panel by itself. A scene's
+      // `keydown` calls the handlers of the one element it is given.
+      keydown(a4Field, 'Escape'),
+      expectIgnored(),
+      keydown(role('group', { name: 'Tuner settings' }), 'Escape'),
+      expectHandled(),
+      Command.resolveAllExact([
+        Popover.FocusButton,
+        Popover.Message.CompletedFocusButton(),
+      ]),
+      settingsMenuGone(),
     )
   })
 })
@@ -1277,7 +1803,6 @@ describe('footer', () => {
 // field. Each has a button, and the name the button is found by here is the
 // `ariaLabel` that the view passes to the component.
 describe('controls', () => {
-  const tuningPicker = role('button', { name: 'Tuning' })
   const settingsMenu = role('button', { name: 'Tuner settings' })
 
   // Both controls can be used only while the tuner is listening.
@@ -1318,8 +1843,8 @@ describe('controls', () => {
       { update, view },
       given(withTuning(listening(), 'bass')),
       expectAll(strings).toHaveCount(4),
-      expect(nth(strings, 0)).toHaveText('E'),
-      expect(nth(strings, 3)).toHaveText('G'),
+      expect(nth(letters, 0)).toHaveText('E'),
+      expect(nth(letters, 3)).toHaveText('G'),
     )
   })
 
@@ -1332,40 +1857,6 @@ describe('controls', () => {
     modifyFields(model, {
       a4Popover: () => Popover.open(model.a4Popover).model,
     })
-
-  // MOUNTS
-  //
-  // A Mount is work tied to an element of the page. The view attaches one
-  // with `h.OnMount(...)`, and in the browser the runtime starts it when the
-  // element appears and stops it when the element goes. An open Popover has
-  // two: `AnchorPopover` places the panel against its button, and
-  // `PortalPopoverBackdrop` moves the backdrop to another place in the
-  // document.
-  //
-  // Scene has no real elements, so it runs neither. It finds the Mounts in
-  // the page it has drawn and holds them as pending, as it does Commands,
-  // until the test gives each its result Message with
-  // `Mount.resolve(definition, resultMessage)`. While a Mount is pending no
-  // interaction may run, and a scene that ends with one pending fails.
-  //
-  // The result Message is the Popover's own,
-  // `Popover.Message.CompletedAnchorPopover()`, not wrapped in the app's
-  // `GotA4PopoverMessage`. Scene applies the wrapping itself. Passing the
-  // wrapped Message is a type error and a schema error (FINDINGS.md, "Scene's
-  // `Mount.resolve` takes the child component's own Message").
-  //
-  // The two steps are kept in an array and spread into each scene that opens
-  // the menu. Steps are ordinary values, so they can be shared like this.
-  const acknowledgeSettingsMenu = [
-    Mount.resolve(
-      Popover.AnchorPopover,
-      Popover.Message.CompletedAnchorPopover(),
-    ),
-    Mount.resolve(
-      Popover.PortalPopoverBackdrop,
-      Popover.Message.CompletedPortalPopoverBackdrop(),
-    ),
-  ]
 
   // The one scene that follows a change all the way round: typing in the
   // field, the Model changing, a Command returned, and another part of the
@@ -1390,7 +1881,7 @@ describe('controls', () => {
       Command.resolve(SavePreferences, Message.SucceededSavePreferences()),
       expect(label('A4 (Hz)')).toHaveValue('442'),
       // Low E was 82.41 Hz at 440. The chip has followed the new A4.
-      expect(title('82.78 Hz')).toHaveText('E'),
+      expect(title('82.78 Hz')).toHaveAccessibleName('E2'),
     )
   })
 
@@ -1405,7 +1896,7 @@ describe('controls', () => {
       type(label('A4 (Hz)'), '39'),
       Command.expectNone(),
       expect(label('A4 (Hz)')).toHaveAttr('aria-invalid', 'true'),
-      expect(title('82.41 Hz')).toHaveText('E'),
+      expect(title('82.41 Hz')).toHaveAccessibleName('E2'),
     )
   })
 
@@ -1484,7 +1975,7 @@ describe('controls', () => {
       expect(role('listbox')).toBeAbsent(),
       expect(tuningPicker).toContainText('Bass - Standard'),
       expectAll(strings).toHaveCount(4),
-      expect(nth(strings, 3)).toHaveText('G'),
+      expect(nth(letters, 3)).toHaveText('G'),
     )
   })
 
@@ -1550,17 +2041,17 @@ describe('controls', () => {
       type(label('A4 (Hz)'), '442'),
       Command.expectExact(SavePreferences({ tuningId: 'standard', a4: 442 })),
       Command.resolve(SavePreferences, Message.SucceededSavePreferences()),
-      expect(title('82.78 Hz')).toHaveText('E'),
+      expect(title('82.78 Hz')).toHaveAccessibleName('E2'),
       click(settingsMenu),
       Command.resolveAllExact([
         Popover.FocusButton,
         Popover.Message.CompletedFocusButton(),
       ]),
-      Mount.expectEnded(Popover.AnchorPopover, Popover.PortalPopoverBackdrop),
+      settingsMenuGone(),
       expect(settingsMenu).toHaveAttr('aria-expanded', 'false'),
       expect(label('A4 (Hz)')).toBeAbsent(),
       // The new pitch outlives the menu.
-      expect(title('82.78 Hz')).toHaveText('E'),
+      expect(title('82.78 Hz')).toHaveAccessibleName('E2'),
     )
   })
 })

@@ -83,6 +83,15 @@ import { describe, expect, test } from 'vitest'
 // and Commands, which the last two groups of tests need.
 import { Listbox, Popover } from '@foldkit/ui'
 
+// The announcer is the part of the `Listening` state that decides what a
+// screen reader is told. `SILENT_ANNOUNCER` is the one a tuner starts with,
+// and `ANNOUNCEMENT_HOLD_READINGS` is how many readings in a row must show
+// the same thing before it is spoken.
+import {
+  ANNOUNCEMENT_HOLD_READINGS,
+  SILENT_ANNOUNCER,
+  announcementText,
+} from './intonation'
 // Everything under test comes from `main.ts`. `Message` and `TunerState` are
 // tagged unions: `Message.ClickedPower()` builds one Message and
 // `TunerState.Off()` one state of the tuner. `SavePreferences` and
@@ -165,6 +174,7 @@ const listening = (fields: ListeningFields = {}): Model =>
       maybeReading: Option.none(),
       needleCents: 0,
       quietTicks: 0,
+      announcer: SILENT_ANNOUNCER,
       ...fields,
     }),
   )
@@ -252,6 +262,26 @@ const readingOf = (next: Model): Option.Option<number> =>
     Listening: ({ maybeReading }) =>
       Option.map(maybeReading, ({ frequency }) => frequency),
     Failed: () => Option.none(),
+  })
+
+// The text of the live region under a Model, and the empty string when the
+// region is empty, which it is in every state but `Listening`. The
+// announcer holds a note and a state, and `announcementText` is the
+// function the view uses to put them into words, so these tests read like
+// what is heard.
+const NOTHING_SPOKEN = ''
+
+const spokenOf = (next: Model): string =>
+  TunerState.match(next.tuner, {
+    Booting: () => NOTHING_SPOKEN,
+    Off: () => NOTHING_SPOKEN,
+    Starting: () => NOTHING_SPOKEN,
+    Listening: ({ announcer }) =>
+      Option.match(announcer.maybeSpoken, {
+        onNone: () => NOTHING_SPOKEN,
+        onSome: announcementText,
+      }),
+    Failed: () => NOTHING_SPOKEN,
   })
 
 // `init` builds the first Model from the address the app was opened at. It
@@ -624,6 +654,7 @@ describe('waiting for the microphone', () => {
             maybeReading: Option.none(),
             needleCents: 0,
             quietTicks: 0,
+            announcer: SILENT_ANNOUNCER,
           }),
         )
       }),
@@ -671,6 +702,7 @@ describe('microphone', () => {
             maybeReading: Option.none(),
             needleCents: 0,
             quietTicks: 0,
+            announcer: SILENT_ANNOUNCER,
           }),
         )
       }),
@@ -846,6 +878,7 @@ describe('microphone', () => {
             maybeReading: Option.none(),
             needleCents: 0,
             quietTicks: 0,
+            announcer: SILENT_ANNOUNCER,
           }),
         )
       }),
@@ -890,6 +923,13 @@ describe('readings', () => {
             maybeReading: Option.some({ frequency: 440, clarity: 0.95 }),
             needleCents: 0,
             quietTicks: 0,
+            // One reading has shown A4 in tune. Nothing is spoken until
+            // it has held: see "what is spoken" below.
+            announcer: {
+              maybeSpoken: Option.none(),
+              maybeCandidate: Option.some({ midi: 69, intonation: 'InTune' }),
+              heldReadings: 1,
+            },
           }),
         )
       }),
@@ -945,6 +985,13 @@ describe('readings', () => {
             maybeReading: Option.some({ frequency: 440, clarity: 0.95 }),
             needleCents: 8,
             quietTicks: 1,
+            // The note is still on the screen, 8 cents sharp, so that is
+            // what the announcer has seen once.
+            announcer: {
+              maybeSpoken: Option.none(),
+              maybeCandidate: Option.some({ midi: 69, intonation: 'Sharp' }),
+              heldReadings: 1,
+            },
           }),
         )
       }),
@@ -988,6 +1035,359 @@ describe('readings', () => {
       message(heard(442)),
       model(next => {
         expect(needleOf(next)).toBe(0)
+      }),
+    )
+  })
+})
+
+// What a screen reader is told. The page has one live region, and its text
+// is the `maybeSpoken` of the announcer inside the `Listening` state: a
+// note and one of three states, such as "A4, in tune". A screen reader
+// reads a live region out when its text changes, so every change here is
+// something said aloud, and the tests below are about when it changes.
+//
+// The rule (`stepAnnouncer` in `src/intonation.ts`): what the screen shows
+// is spoken once it has been the same for `ANNOUNCEMENT_HOLD_READINGS`
+// readings in a row, seven, which is about a third of a second. There is no
+// clock in it. `update` steps the announcer once for each reading, so a
+// story can play any stretch of time by sending readings.
+describe('what is spoken', () => {
+  // A frequency `cents` away from A4. A cent is a hundredth of a semitone,
+  // and an octave, 1200 cents, doubles the frequency.
+  const a4Off = (cents: number): number => 440 * 2 ** (cents / 1200)
+
+  // `count` readings in a row at one frequency, as story steps.
+  const hearing = (count: number, frequency: number) =>
+    Array.makeBy(count, () => message(heard(frequency)))
+
+  // The same, and after each reading the text of the live region is added
+  // to `log`. A story has no step that returns a value, so the test hands
+  // in an array and the `model` step pushes onto it. What is in the array
+  // at the end is everything the region said, reading by reading.
+  //
+  // `model<Model>` names the type by hand. Inside `story(...)` a step
+  // learns the Model's type from the call round it, and these steps are
+  // built outside one.
+  const hearingAndNoting = (
+    log: Array<string>,
+    frequencies: ReadonlyArray<number>,
+  ) =>
+    frequencies.flatMap(frequency => [
+      message(heard(frequency)),
+      model<Model>(next => {
+        log.push(spokenOf(next))
+      }),
+    ])
+
+  // How many times the region was given new words, counting from an empty
+  // region. Each is one thing a screen reader says. Emptying the region is
+  // not counted, because it is not read out.
+  const timesSpoken = (log: ReadonlyArray<string>): number =>
+    log.filter(
+      (spoken, index) =>
+        spoken !== NOTHING_SPOKEN &&
+        spoken !== (log[index - 1] ?? NOTHING_SPOKEN),
+    ).length
+
+  test('a tuner that has just begun to listen says nothing', () => {
+    story(
+      update,
+      given(startingModel),
+      message(Message.SucceededAcquireMicrophone()),
+      model(next => {
+        expect(spokenOf(next)).toBe(NOTHING_SPOKEN)
+      }),
+    )
+  })
+
+  // 440 Hz is A4 exactly. Six readings are not enough, and the seventh
+  // speaks. The numbers are written out here, and nowhere else in this
+  // group, so that a change to the hold has to be made in this test too.
+  test('a steady note in tune is spoken once it has held for seven readings', () => {
+    story(
+      update,
+      given(listening()),
+      ...hearing(6, 440),
+      model(next => {
+        expect(spokenOf(next)).toBe(NOTHING_SPOKEN)
+      }),
+      message(heard(440)),
+      model(next => {
+        expect(spokenOf(next)).toBe('A4, in tune')
+      }),
+    )
+  })
+
+  // However long the string rings, the text is set once and then left
+  // alone, so it is spoken once.
+  test('a note that goes on ringing is not spoken again', () => {
+    const log: Array<string> = []
+
+    story(
+      update,
+      given(listening()),
+      ...hearingAndNoting(
+        log,
+        Array.makeBy(100, () => 440),
+      ),
+    )
+
+    expect(timesSpoken(log)).toBe(1)
+    expect(log.at(-1)).toBe('A4, in tune')
+  })
+
+  // A string 20 cents flat. The needle starts in the middle and is
+  // smoothed towards the reading, 35% of the way each time: -7, then
+  // -11.6, and on down. It is past the edge of in tune from the first
+  // reading, so "flat" is what holds.
+  test('a steady flat note is spoken as flat', () => {
+    story(
+      update,
+      given(listening()),
+      ...hearing(ANNOUNCEMENT_HOLD_READINGS, a4Off(-20)),
+      model(next => {
+        expect(spokenOf(next)).toBe('A4, flat')
+      }),
+    )
+  })
+
+  test('a steady sharp note is spoken as sharp', () => {
+    story(
+      update,
+      given(listening()),
+      ...hearing(ANNOUNCEMENT_HOLD_READINGS, a4Off(20)),
+      model(next => {
+        expect(spokenOf(next)).toBe('A4, sharp')
+      }),
+    )
+  })
+
+  // From A4 to the E string of a guitar, 82.41 Hz. The new note has to
+  // hold as long as the first one did, and until then the old text stays.
+  test('a change of note is spoken after its own hold', () => {
+    story(
+      update,
+      given(listening()),
+      ...hearing(ANNOUNCEMENT_HOLD_READINGS, 440),
+      ...hearing(ANNOUNCEMENT_HOLD_READINGS - 1, 82.41),
+      model(next => {
+        expect(spokenOf(next)).toBe('A4, in tune')
+      }),
+      message(heard(82.41)),
+      model(next => {
+        expect(spokenOf(next)).toBe('E2, in tune')
+      }),
+    )
+  })
+
+  // Tuning up: the string is flat, and the player brings it in. Two things
+  // are said, in order, and nothing in between.
+  test('a string brought from flat to in tune is spoken twice', () => {
+    const log: Array<string> = []
+
+    story(
+      update,
+      given(listening()),
+      ...hearingAndNoting(log, [
+        ...Array.makeBy(20, () => a4Off(-20)),
+        ...Array.makeBy(20, () => 440),
+      ]),
+    )
+
+    expect(timesSpoken(log)).toBe(2)
+    expect(log.at(-1)).toBe('A4, in tune')
+  })
+
+  // The case the hold is for: a string at the edge of in tune. The needle
+  // starts at 5 cents sharp, and the readings alternate between 8 cents
+  // sharp and 3. The smoothing puts the needle near 6 after one and near 5
+  // after the other, so the page reads "sharp", "in tune", "sharp", and so
+  // on, twenty times a second. Forty readings are two seconds of that.
+  //
+  // The story starts with "A4, in tune" already spoken, as it would be for
+  // a string that drifted to the edge. Nothing new is said.
+  test('a flutter across the edge of in tune, faster than the hold, speaks nothing new', () => {
+    const log: Array<string> = []
+    const inTune = { midi: 69, intonation: 'InTune' } as const
+
+    story(
+      update,
+      given(
+        listening({
+          maybeReading: Option.some({ frequency: 440, clarity: 0.95 }),
+          needleCents: 5,
+          announcer: {
+            maybeSpoken: Option.some(inTune),
+            maybeCandidate: Option.some(inTune),
+            heldReadings: ANNOUNCEMENT_HOLD_READINGS,
+          },
+        }),
+      ),
+      ...hearingAndNoting(
+        log,
+        Array.makeBy(40, index => a4Off(index % 2 === 0 ? 8 : 3)),
+      ),
+      // The flutter is real: the last reading left the needle on the other
+      // side of the edge from the one before it. 3 cents pulls it to 5,
+      // which is in tune, and 8 would have pulled it to 6, which is not.
+      model(next => {
+        expect(needleOf(next)).toBeGreaterThan(4.5)
+        expect(needleOf(next)).toBeLessThan(5.5)
+      }),
+    )
+
+    expect(log).toHaveLength(40)
+    expect(new Set(log)).toEqual(new Set(['A4, in tune']))
+  })
+
+  // A slower flutter: three readings in tune, three 40 cents sharp, and
+  // round again, for three seconds. A jump of 40 cents is taken for a new
+  // note, so the needle goes straight there and back (`moveNeedle` in
+  // `main.ts`) and the state really does hold for three readings at a
+  // time. Three is still less than seven, so nothing is said.
+  test('a flutter that holds for three readings at a time speaks nothing new', () => {
+    const log: Array<string> = []
+    const inTune = { midi: 69, intonation: 'InTune' } as const
+
+    story(
+      update,
+      given(
+        listening({
+          maybeReading: Option.some({ frequency: 440, clarity: 0.95 }),
+          announcer: {
+            maybeSpoken: Option.some(inTune),
+            maybeCandidate: Option.some(inTune),
+            heldReadings: ANNOUNCEMENT_HOLD_READINGS,
+          },
+        }),
+      ),
+      ...hearingAndNoting(
+        log,
+        Array.makeBy(60, index => a4Off(index % 6 < 3 ? 40 : 0)),
+      ),
+    )
+
+    expect(new Set(log)).toEqual(new Set(['A4, in tune']))
+  })
+
+  // The same flutter from silence: nothing has been said yet, and nothing
+  // is said while it lasts. Then the string settles sharp, and that is
+  // said, once.
+  test('a flutter that then settles is spoken once', () => {
+    const log: Array<string> = []
+
+    story(
+      update,
+      given(listening({ needleCents: 5 })),
+      ...hearingAndNoting(log, [
+        ...Array.makeBy(40, index => a4Off(index % 2 === 0 ? 8 : 3)),
+        ...Array.makeBy(20, () => a4Off(20)),
+      ]),
+    )
+
+    expect(new Set(log.slice(0, 40))).toEqual(new Set([NOTHING_SPOKEN]))
+    expect(timesSpoken(log)).toBe(1)
+    expect(log.at(-1)).toBe('A4, sharp')
+  })
+
+  // Silence. The screen holds the last note for twelve quiet readings and
+  // clears on the thirteenth ("readings", above), and the announcer follows
+  // the screen: the text stays while the note is shown, and goes when it
+  // goes. A screen reader does not read out a region that has been emptied,
+  // so the silence itself says nothing.
+  test('silence keeps the text while the note is shown, then empties it', () => {
+    story(
+      update,
+      given(listening()),
+      ...hearing(ANNOUNCEMENT_HOLD_READINGS, 440),
+      ...Array.makeBy(12, () => message(silence)),
+      model(next => {
+        expect(spokenOf(next)).toBe('A4, in tune')
+      }),
+      message(silence),
+      model(next => {
+        expect(spokenOf(next)).toBe(NOTHING_SPOKEN)
+      }),
+    )
+  })
+
+  // The same string again after a silence. The text is the same as before
+  // the silence, and it is still spoken: the region was emptied in between,
+  // so filling it is a change. It waits for its hold like any other note.
+  test('the same note after a silence is spoken again', () => {
+    const log: Array<string> = []
+
+    story(
+      update,
+      given(listening()),
+      ...hearingAndNoting(
+        log,
+        Array.makeBy(10, () => 440),
+      ),
+      ...Array.makeBy(13, () => message(silence)),
+      model(next => {
+        log.push(spokenOf(next))
+      }),
+      ...hearingAndNoting(
+        log,
+        Array.makeBy(10, () => 440),
+      ),
+    )
+
+    expect(timesSpoken(log)).toBe(2)
+    // Ten readings, the emptied region, and then six readings before the
+    // seventh speaks again.
+    expect(new Set(log.slice(10, 17))).toEqual(new Set([NOTHING_SPOKEN]))
+    expect(log[17]).toBe('A4, in tune')
+  })
+
+  // A short gap inside the 0.6 seconds for which the screen holds a note
+  // does not empty the region, so a note that wavers in loudness is not
+  // spoken twice.
+  test('a short gap in a ringing note does not speak it again', () => {
+    const log: Array<string> = []
+
+    story(
+      update,
+      given(listening()),
+      ...hearingAndNoting(
+        log,
+        Array.makeBy(10, () => 440),
+      ),
+      ...Array.makeBy(5, () => message(silence)),
+      ...hearingAndNoting(
+        log,
+        Array.makeBy(10, () => 440),
+      ),
+    )
+
+    expect(timesSpoken(log)).toBe(1)
+  })
+
+  // What is spoken is what is shown, and the note shown depends on A4. At
+  // A4 = 442, a string at 442 Hz is an A4 in tune, where at 440 it would
+  // be 8 cents sharp.
+  test('the note and the state are measured against the chosen A4', () => {
+    story(
+      update,
+      given(modifyFields(listening(), { a4: () => 442 })),
+      ...hearing(ANNOUNCEMENT_HOLD_READINGS, 442),
+      model(next => {
+        expect(spokenOf(next)).toBe('A4, in tune')
+      }),
+    )
+  })
+
+  // Switching off leaves `Listening`, and the announcer goes with it. The
+  // next time the tuner listens it starts silent.
+  test('switching the tuner off empties the region', () => {
+    story(
+      update,
+      given(listening()),
+      ...hearing(ANNOUNCEMENT_HOLD_READINGS, 440),
+      message(Message.ClickedPower()),
+      model(next => {
+        expect(spokenOf(next)).toBe(NOTHING_SPOKEN)
       }),
     )
   })
@@ -1588,6 +1988,56 @@ describe('leaving with the settings menu open', () => {
       message(Message.ChangedUrl({ url: howToUrl })),
       Command.expectExact(FocusPageHeading()),
       Command.resolve(FocusPageHeading, Message.CompletedFocusPageHeading()),
+    )
+  })
+})
+
+// Tab inside the settings menu. The menu's panel is not where it looks: an
+// open Popover moves its panel to the start of the document, so that
+// nothing can clip it. The keyboard goes by the document, so Tab from the
+// A4 field would land on the first link of the page, far from the menu's
+// button, with the menu closed behind it. The view catches the key and
+// sends `PressedTabInSettingsMenu`, and `update` closes the menu the way
+// Escape does: the Popover's own close, whose one Command hands focus back
+// to the settings button. That the key really is caught, and where focus
+// really lands, are a browser's business: checked in headless Chrome.
+describe('Tab in the settings menu', () => {
+  test('the menu is closed, focus is handed to its button, and the A4 text is put back', () => {
+    const opened = Popover.open(offModel.a4Popover)
+    const withOpenMenu = modifyFields(listening(), {
+      a4Popover: () => opened.model,
+      a4Input: () => '39',
+    })
+
+    story(
+      update,
+      given(withOpenMenu),
+      message(Message.PressedTabInSettingsMenu()),
+      model(next => {
+        expect(next.a4Popover.isOpen).toBe(false)
+        expect(next.a4Input).toBe('440')
+        // The tuner goes on listening: only the menu has closed.
+        expect(next.tuner._tag).toBe('Listening')
+      }),
+      Command.expectExact(Popover.FocusButton({ id: 'a4' })),
+      Command.resolve(
+        Popover.FocusButton,
+        Popover.Message.CompletedFocusButton(),
+      ),
+    )
+  })
+
+  // A key press that arrives when the menu is already closed changes
+  // nothing and returns no Command.
+  test('with the menu closed it changes nothing', () => {
+    story(
+      update,
+      given(listening()),
+      message(Message.PressedTabInSettingsMenu()),
+      model(next => {
+        expect(next).toEqual(listening())
+      }),
+      Command.expectNone(),
     )
   })
 })

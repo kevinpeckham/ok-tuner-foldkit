@@ -421,10 +421,21 @@ export const frequencyOfMidi = (midi: number, a4 = DEFAULT_A4_HZ): number =>
 export const noteName = (midi: number): string => pitchClass(midi)
 
 // Came across with the port. Nothing in the app calls it at present: only
-// `pitch.test.ts` does.
+// `pitch.test.ts` does. The app says a note with its octave in words, with
+// `spokenNoteLabel` below.
 /** "E2", "F♯3": a note's name with its octave. */
 export const noteLabel = (midi: number): string =>
   `${pitchClass(midi)}${octaveOf(midi)}`
+
+// The same, for a screen reader: the sign "♯" written as the word. A screen
+// reader may pronounce the sign, name it some other way, or pass over it in
+// silence, and "F3" for an F sharp is the wrong note. The word cannot be
+// misread. A natural note keeps its short form, "E2", which a speech
+// synthesiser reads as "E two". `src/intonation.ts` uses it for what the
+// tuner says aloud, and `src/view.ts` for the name of each string chip.
+/** "E2", "F sharp 3": a note's name with its octave, as it should be spoken. */
+export const spokenNoteLabel = (midi: number): string =>
+  noteLabel(midi).replace('♯', ' sharp ')
 
 // LEVEL AND MEASURE
 

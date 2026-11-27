@@ -278,9 +278,7 @@ const installMicrophone = (): StandIn => {
 const listen = async (): Promise<void> => {
   click(powerButton())
   await eventually(() => {
-    expect(document.querySelector('[aria-live="polite"]')?.textContent).toBe(
-      'A2',
-    )
+    expect(document.querySelector('[data-tuner-note]')?.textContent).toBe('A2')
   })
 }
 
@@ -400,6 +398,37 @@ describe('the microphone and its readings', () => {
     const readingsWhenClosed = microphone.read.mock.calls.length
     await pause(150)
     expect(microphone.read.mock.calls.length).toBe(readingsWhenClosed)
+  })
+
+  // What a screen reader is told, in a running app. The page has one live
+  // region for the reading, off screen, and it starts empty. The stand-in
+  // microphone plays a steady 110 Hz, an A2 in tune, and the readings come
+  // every 50 ms. `update` puts the words in the region once the same note
+  // and state have been shown for seven readings in a row (`stepAnnouncer`
+  // in `src/intonation.ts`), so the words arrive about a third of a second
+  // after the note, with no timer anywhere: the Subscription's readings
+  // are the clock. Switching off empties the region.
+  test('the live region says the note and its state once it has held, and empties when switched off', async () => {
+    const announcement = (): string =>
+      document.querySelector('[data-tuner-announcement]')?.textContent ?? ''
+    const microphone = installMicrophone()
+    await start()
+    expect(announcement()).toBe('')
+
+    await listen()
+    // The note is on the screen. Seven readings have not gone by yet.
+    expect(microphone.read.mock.calls.length).toBeLessThan(7)
+    expect(announcement()).toBe('')
+
+    await eventually(() => {
+      expect(announcement()).toBe('A2, in tune')
+    })
+    expect(microphone.read.mock.calls.length).toBeGreaterThanOrEqual(7)
+
+    click(powerButton())
+    await eventually(() => {
+      expect(announcement()).toBe('')
+    })
   })
 
   // The microphone is unplugged while the tuner listens. A browser marks

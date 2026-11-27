@@ -141,10 +141,37 @@ describe('the tuner page, as the build writes it', () => {
     expect(html).not.toContain('Waiting for the microphone')
   })
 
+  // The same holds for the region that says the note and whether it is
+  // flat, in tune or sharp: it is in the file, a polite live region, with
+  // nothing in it. It is the only element in the file that carries
+  // `aria-live`. The other pages have no tuner and so no such region.
+  test('has the announcement region, polite and empty, and no other', async () => {
+    const html = await documentAt('/')
+
+    expect(html).toMatch(
+      /<div[^>]*aria-live="polite"[^>]*data-tuner-announcement[^>]*><\/div>/,
+    )
+    expect(html).toMatch(
+      /<div[^>]*aria-atomic="true"[^>]*data-tuner-announcement[^>]*><\/div>/,
+    )
+    expect(html.match(/aria-live=/g)).toHaveLength(1)
+    expect(await documentAt('/how-to')).not.toContain('aria-live')
+  })
+
   // The first Model is the same for every visitor, so the page in the file
   // shows the default tuning. A saved one replaces it in the browser.
   test('shows the default tuning', async () => {
     expect(await documentAt('/')).toContain('Guitar - Standard')
+  })
+
+  // The picker's name starts with the word "Tuning", which is in the file
+  // and off screen, and each string chip holds its note with the octave.
+  test('names the picker and the strings for a screen reader', async () => {
+    const html = await documentAt('/')
+
+    expect(html).toMatch(/<span[^>]*id="tuning-name"[^>]*>Tuning<\/span>: /)
+    expect(html).toMatch(/<span[^>]*class="sr-only"[^>]*>E2<\/span>/)
+    expect(html).toMatch(/<span[^>]*class="sr-only"[^>]*>E4<\/span>/)
   })
 })
 
