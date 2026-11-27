@@ -84,6 +84,17 @@
    */
   --color-accent: #ebf92f;
   --color-maximum-yellow: oklch(0.9406 0.201 113.9);
+  /*
+   * `failure` is the colour of the line that says the microphone could not
+   * be opened (`text-failure`, in `failureView`). It is a red so dark that
+   * it is nearly black, and has to be. The line sits low on the pedal,
+   * where the grey ground is at its darkest, and text there needs a
+   * contrast of 4.5 to 1. Black itself only reaches 5.1, so there is little
+   * room for colour: Tailwind's darkest red, `red-950`, measured 3.9. This
+   * one measures 4.8 at the foot of the pedal (FINDINGS.md, "How dark the
+   * failure line has to be"). If the pedal's ground changes, measure again.
+   */
+  --color-failure: oklch(0.15 0.06 26);
 }
 
 /*

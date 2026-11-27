@@ -33,6 +33,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import * as Sentry from '@sentry/browser'
 
+import { SILENT_ANNOUNCER } from './intonation'
 import { Message, ReportProblem, TunerState, init } from './main'
 import {
   DETAIL_LIMIT,
@@ -442,6 +443,7 @@ describe('reportCrash', () => {
           maybeReading: reading,
           needleCents: 3,
           quietTicks: 0,
+          announcer: SILENT_ANNOUNCER,
         }),
     })
 

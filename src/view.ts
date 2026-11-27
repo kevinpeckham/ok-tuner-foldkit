@@ -28,9 +28,11 @@
 // next Model, and the page is drawn from it. Data flows one way:
 // Model -> view -> Message -> update -> Model.
 // The attributes that do this are `h.OnClick(message)` and
-// `h.OnInput(value => message)`. This file never writes them out, because its
-// interactive parts all go through `@foldkit/ui` components, which call them
-// for us with the Messages we pass in.
+// `h.OnInput(value => message)`. This file never writes those two out,
+// because its interactive parts all go through `@foldkit/ui` components,
+// which call them for us with the Messages we pass in. It writes one handler
+// by hand, for the Tab key in the settings menu (`leaveOnTab`, near
+// `settingsMenuView`).
 //
 // Derived, not stored. The Model holds only what cannot be worked out: the
 // power state, the last reading, the smoothed needle, the chosen tuning, A4.
@@ -38,7 +40,9 @@
 // position, the lit string and whether the A4 field is valid are all computed
 // here on every render (the DISPLAY section below). A stored copy could fall
 // out of step with the reading it came from. A derived value cannot. The
-// design says the same under "Model".
+// design says the same under "Model". One thing on the page is not derived:
+// the words a screen reader is told (`announcementView`), which depend on
+// the last few readings and so are kept in the Model by `update`.
 //
 // The pages. The app has three, and the `route` field of the Model says
 // which one is showing (src/route.ts). `view` draws what every page shares
@@ -63,6 +67,7 @@
 //         (inline)           the "Hz, cents, in tune" line
 //         needleView         the needle bar
 //         scaleView          -50 / 0 / +50
+//       announcementView     what a screen reader is told, off screen
 //       stringsView          one chip per string of the tuning
 //         stringView
 //       controlsView
@@ -135,18 +140,27 @@ import * as Footer from './footer'
 import * as Header from './header'
 // The four icons. Each is a function from a class name to an inline SVG.
 import * as Icon from './icon'
+// The one rule for "in tune", and the words for what the tuner says aloud.
+// `update` reads the same rule, which is why it is in a file of its own and
+// not here: see IN TUNE below.
+import {
+  IN_TUNE_EDGE_CENTS,
+  type Intonation,
+  announcementText,
+  intonationOf,
+  intonationWord,
+  wholeCents,
+} from './intonation'
 // The classes of the frame every screen is drawn in: the page ground, the
 // `<main>` and the centred column. The crash screen (src/crash.ts) reads the
 // same three, so it looks like the site without calling this file.
 import { COLUMN_CLASS, MAIN_CLASS, PAGE_CLASS } from './layout'
 // From main.ts: the `Model` this file reads, the `Message` constructors it
 // attaches to elements, `TunerState` (the tagged union for booting, off,
-// starting, listening and failed) and `TuningListbox` (the Listbox bound to our
-// `Tuning` type). `IN_TUNE_CENTS` is the number in the tuner's rule for "in
-// tune", kept in main.ts beside its other constants. The rule itself is
-// under IN TUNE below.
+// starting, listening and failed), `TuningListbox` (the Listbox bound to our
+// `Tuning` type) and `AttachA4SelectOnFocus` (a Mount: see `a4FieldView`).
 import {
-  IN_TUNE_CENTS,
+  AttachA4SelectOnFocus,
   Message,
   type Model,
   TunerState,
@@ -167,6 +181,7 @@ import {
   frequencyOfMidi,
   noteFromFrequency,
   noteName,
+  spokenNoteLabel,
 } from './pitch'
 // The limits of the A4 field, and the parser that decides whether what was
 // typed is a usable A4.
@@ -212,6 +227,17 @@ const NON_BREAKING_SPACE = ' '
 // the same line shows when the audio itself is slow to start.
 const WAITING_FOR_MICROPHONE =
   'Waiting for the microphone. If your browser is asking for permission, allow it.'
+// What the tuning picker is, as a word. It is in the page twice over, both
+// times off screen: inside the picker's button, where it starts the
+// button's accessible name, and as the name of the open list, which points
+// at it by this id (`tuningPickerView`).
+const TUNING_NAME = 'Tuning'
+const TUNING_NAME_ID = 'tuning-name'
+// The name of the settings button, and of the menu it opens.
+const SETTINGS_NAME = 'Tuner settings'
+// The id of the A4 field. The label's `for` points at it, and the settings
+// menu focuses it on opening (`settingsMenuView`).
+const A4_INPUT_ID = 'a4-input'
 
 // DISPLAY
 
@@ -232,54 +258,34 @@ const WAITING_FOR_MICROPHONE =
 //                the needle marker's position reads it.
 //   shownCents   derived: the needle as a whole number of cents, which is
 //                the number the detail line prints (`wholeCents`).
-//   isInTune     derived from `shownCents`: see IN TUNE below.
+//   intonation   derived from `shownCents`: flat, in tune or sharp. See IN
+//                TUNE below.
+//   isInTune     the same answer as a yes or no, for the three places that
+//                only choose between two colours.
 type Heard = Readonly<{
   frequency: number
   note: Note
   needleCents: number
   shownCents: number
+  intonation: Intonation
   isInTune: boolean
 }>
 
 // IN TUNE
 //
-// One rule, in one place: the needle, rounded to a whole cent, is in tune
-// when it is within `IN_TUNE_CENTS` of the note. It goes by the number as
-// shown, on purpose. The detail line prints a whole number of cents and a
-// word beside it, and the two must never disagree. Until 0.7.2 the word
-// came from the needle before rounding, so a needle at 5.4 read "+5 cents ·
-// sharp" while one at 5.0 read "+5 cents · in tune".
+// One rule, in one place, and the place is src/intonation.ts: the needle,
+// rounded to a whole cent (`wholeCents`), is flat, in tune or sharp
+// (`intonationOf`). It is there and not here because `update` needs the
+// same answer, for what a screen reader is told, and src/main.ts cannot
+// import this file. The header of that file has the rule in full.
 //
 // Four things on the page say "in tune": the word in the detail line, the
 // needle marker's colour, the lit string chip's colour, and the green zone
-// of the needle bar. The first three read `isInTune` from the `Heard`
-// record that `toDisplay` builds with the two functions below, and the
-// zone is drawn from `IN_TUNE_EDGE_CENTS`. Nothing else in the file
-// compares cents with `IN_TUNE_CENTS`. Keep it so: a second comparison
-// written somewhere else is how the number and the word came apart.
-
-// The needle as the detail line prints it: a whole number of cents. A half
-// rounds away from zero on both sides (5.5 is 6 and -5.5 is -6), so sharp
-// and flat are treated alike. `Math.round` alone rounds a half upwards,
-// which would make -5.5 into -5, hence the detour through the magnitude.
-//
-// A needle that rounds to nothing gives plain zero, never negative zero.
-// JavaScript has both, and `(-0.4).toFixed(0)` is the text "-0", which is
-// what the detail line used to print for a needle a hair flat.
-const wholeCents = (needleCents: number): number => {
-  const magnitude = Math.round(Math.abs(needleCents))
-
-  return needleCents < 0 && magnitude > 0 ? -magnitude : magnitude
-}
-
-// The rule itself, on the whole number from `wholeCents`.
-const isWithinInTune = (shownCents: number): boolean =>
-  Math.abs(shownCents) <= IN_TUNE_CENTS
-
-// The same rule as a place on the needle bar. A needle rounds to
-// `IN_TUNE_CENTS` or less until it reaches half a cent beyond it, so that
-// is how far either side of the middle the green zone goes (`needleView`).
-const IN_TUNE_EDGE_CENTS = IN_TUNE_CENTS + 0.5
+// of the needle bar. The first three read `intonation` or `isInTune` from
+// the `Heard` record that `toDisplay` builds, and the zone is drawn from
+// `IN_TUNE_EDGE_CENTS`. Nothing in this file compares cents with a number.
+// Keep it so: a second comparison written somewhere else is how the number
+// and the word once came apart.
 
 // Everything the screen needs, whichever state the tuner is in.
 // A name that starts with `maybe` holds an `Option`: that is the project's
@@ -290,6 +296,11 @@ const IN_TUNE_EDGE_CENTS = IN_TUNE_CENTS + 0.5
 //   isStartingSlow  the same, and it has been so for more than 1.2 seconds
 //                   (`isSlow` in the Model's `Starting` state). Never true
 //                   unless `isStarting` is.
+//   maybeSpoken     the words in the live region for a screen reader, such
+//                   as "E2, flat". None while there is nothing to say. It
+//                   is not derived from `maybeHeard`: the Model holds it,
+//                   because it lags the screen on purpose
+//                   (`announcementView`).
 type Display = Readonly<{
   isBooting: boolean
   isListening: boolean
@@ -297,6 +308,7 @@ type Display = Readonly<{
   isStartingSlow: boolean
   level: number
   maybeHeard: Option.Option<Heard>
+  maybeSpoken: Option.Option<string>
   maybeFailure: Option.Option<string>
 }>
 
@@ -310,6 +322,7 @@ const quietDisplay: Display = {
   isStartingSlow: false,
   level: 0,
   maybeHeard: Option.none(),
+  maybeSpoken: Option.none(),
   maybeFailure: Option.none(),
 }
 
@@ -323,7 +336,7 @@ const quietDisplay: Display = {
 //
 // Note what is worked out here and never kept in the Model: the note (from
 // the frequency and `model.a4`, so a change of A4 renames the note on the next
-// render with no extra code), `shownCents` and `isInTune`.
+// render with no extra code), `shownCents`, `intonation` and `isInTune`.
 const toDisplay = (model: Model): Display =>
   TunerState.match(model.tuner, {
     // Drawn like Off, with one difference: the power button is disabled.
@@ -336,26 +349,31 @@ const toDisplay = (model: Model): Display =>
       isStarting: true,
       isStartingSlow: isSlow,
     }),
-    Listening: ({ level, maybeReading, needleCents }) => ({
+    Listening: ({ level, maybeReading, needleCents, announcer }) => ({
       ...quietDisplay,
       isListening: true,
       level,
       // `Option.map(option, f)` applies `f` to the value if there is one and
       // passes None through untouched. So "no reading" becomes "nothing
       // heard" without an `if`.
-      // `shownCents` and `isInTune` are worked out here, once, for
-      // everything that draws from them (IN TUNE above).
+      // `shownCents`, `intonation` and `isInTune` are worked out here,
+      // once, for everything that draws from them (IN TUNE above).
       maybeHeard: Option.map(maybeReading, ({ frequency }) => {
         const shownCents = wholeCents(needleCents)
+        const intonation = intonationOf(shownCents)
 
         return {
           frequency,
           note: noteFromFrequency(frequency, model.a4),
           needleCents,
           shownCents,
-          isInTune: isWithinInTune(shownCents),
+          intonation,
+          isInTune: intonation === 'InTune',
         }
       }),
+      // The one thing here that is read and not worked out: what `update`
+      // has decided a screen reader should be told, put into words.
+      maybeSpoken: Option.map(announcer.maybeSpoken, announcementText),
     }),
     // The Model stores the kind of failure (refused, unsupported, unexpected)
     // and not a sentence, because `update` has to tell a refusal from a fault
@@ -367,28 +385,19 @@ const toDisplay = (model: Model): Display =>
     }),
   })
 
-// The last word of the detail line. "In tune" wins. Otherwise the sign of
-// the number shown decides: above the note is sharp, below it is flat. It
-// reads the same whole number the line prints, never the needle itself, so
-// the word cannot contradict the number beside it.
-const tuningWord = ({ shownCents, isInTune }: Heard): string => {
-  if (isInTune) {
-    return 'in tune'
-  } else if (shownCents > 0) {
-    return 'sharp'
-  } else {
-    return 'flat'
-  }
-}
-
 // The line under the note: the frequency, the cents and the word, joined by
 // middle dots. The cents are `shownCents`, already a whole number. A
 // negative number prints its own minus sign, so only the plus has to be
 // added, and zero gets neither: "0 cents".
+//
+// The last word is "in tune", "sharp" or "flat" (`intonationWord`). It
+// comes from `intonation`, which was worked out from the same whole number
+// the line prints and never from the needle itself, so the word cannot
+// contradict the number beside it.
 const detailLine = (heard: Heard): string => {
   const sign = heard.shownCents > 0 ? '+' : ''
 
-  return `${heard.frequency.toFixed(1)} Hz · ${sign}${heard.shownCents} cents · ${tuningWord(heard)}`
+  return `${heard.frequency.toFixed(1)} Hz · ${sign}${heard.shownCents} cents · ${intonationWord(heard.intonation)}`
 }
 
 // Where the needle marker sits, as a CSS `left` percentage. The cents are
@@ -621,6 +630,7 @@ const tunerView = (model: Model, h: HtmlBuilder<Message>): Html => {
     ],
     [
       screenView(display, h),
+      announcementView(display, h),
       stringsView(tuning, model.a4, display, h),
       controlsView(model, tuning, display, h),
       powerRowView(display, h),
@@ -772,25 +782,22 @@ const powerLightView = (display: Display, h: HtmlBuilder<Message>): Html =>
 
 // The big note name and its octave.
 //
-// `aria-live="polite"` makes this element a live region: when its text
-// changes, a screen reader reads the new text out once it has finished what
-// it was saying. That is how someone who cannot see the screen hears which
-// note they are playing. `aria-atomic="true"` makes it read the whole region
-// ("A 2") and not only the part that changed, so a change of octave is not
-// announced as a bare "3".
-// Only the note is live. The detail line under it changes with every reading
-// and is ordinary text: it can be read, but it is not announced.
+// This is ordinary text. Until 0.8.0 it was a live region, so that a
+// screen reader read the note out when it changed. That job has moved to
+// `announcementView` below, which says the note together with "flat", "in
+// tune" or "sharp". A page should say a thing once, so the attributes came
+// off here. Someone using a screen reader can still move to this text and
+// to the detail line under it and read them, cents included.
 //
-// `h.AriaLive` takes the attribute's string value. `h.AriaAtomic` takes a
-// boolean and writes it as "true" or "false".
+// `data-tuner-note` is for the tests: the note has no role or label to be
+// found by.
 //
 // The note keeps its blue-white colour when in tune, on purpose: FINDINGS.md,
 // "The note name stays blue-white when in tune".
 const noteView = (display: Display, h: HtmlBuilder<Message>): Html =>
   h.div(
     [
-      h.AriaLive('polite'),
-      h.AriaAtomic(true),
+      h.DataAttribute('tuner-note', ''),
       h.Class('h-[56px] text-[56px] leading-none tabular-nums'),
     ],
     // Here `Option.match` produces the whole array of children: a dimmed
@@ -806,6 +813,55 @@ const noteView = (display: Display, h: HtmlBuilder<Message>): Html =>
           [`${note.octave}`],
         ),
       ],
+    }),
+  )
+
+// What a screen reader is told while the tuner listens: the note and which
+// way it is off, such as "E2, flat". Nobody sees this element. It is how a
+// player who cannot see the needle learns which way to turn the peg.
+//
+// `aria-live="polite"` makes the div a live region: when its text changes,
+// a screen reader reads the new text out once it has finished what it was
+// saying. `aria-atomic="true"` makes it read the whole region and not only
+// the part that changed, so "E2, flat" turning into "E2, in tune" is not
+// read as a bare "in tune". `h.AriaLive` takes the attribute's string value
+// and `h.AriaAtomic` a boolean, which it writes as "true" or "false".
+//
+// The text changes rarely, and that is the design. The needle moves twenty
+// times a second, and a region that followed it would never stop talking.
+// The words come from the Model (`maybeSpoken`), where `update` changes
+// them only when the note and its state have held steady for about a third
+// of a second (the `announcer` in src/main.ts, `stepAnnouncer` in
+// src/intonation.ts). The view has no memory, so it could not do this
+// itself: it draws what it is given.
+//
+// NOTE: the div is always in the page, in every state of the tuner, and
+// only its text comes and goes. A screen reader announces a change inside a
+// live region it already knows about, and may say nothing when a region
+// arrives with its text already in it. So the region is here from the first
+// render, prerendered file included, and empty. When the sound stops the
+// text is removed, which is not read out, and that is what lets the same
+// note be announced again when it comes back.
+//
+// `sr-only` is Tailwind's class for "in the page, read out, and off
+// screen": a box one pixel square with its content clipped. It is out of
+// the flow (`position: absolute`), so the pedal is laid out as if the
+// element were not there.
+//
+// `data-tuner-announcement` is for the tests, like `data-tuner-note`.
+const announcementView = (display: Display, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [
+      h.AriaLive('polite'),
+      h.AriaAtomic(true),
+      h.DataAttribute('tuner-announcement', ''),
+      h.Class('sr-only'),
+    ],
+    // An array with the words in it, or an empty one: a string child
+    // becomes a text node, and with no children the div is empty.
+    Option.match(display.maybeSpoken, {
+      onNone: () => [],
+      onSome: spoken => [spoken],
     }),
   )
 
@@ -977,6 +1033,17 @@ const stringChipTone = (isNearest: boolean, isInTune: boolean): string => {
 
 // One string chip.
 //
+// What a chip shows and what it is called differ, on purpose. It shows the
+// note's letter, as the original tuner does. But a guitar has two E
+// strings, and a banjo two G strings and two D strings, and read out by
+// letter alone they could not be told apart. So the chip holds two spans:
+// the letter, which is seen and hidden from assistive technology
+// (`aria-hidden`), and the note with its octave ("E2", "F sharp 3"), which
+// is off screen (`sr-only`) and read. The octave tells low E from high E.
+// The name is text inside the chip and not an `aria-label` on it, because a
+// chip is a list item and not a control, and a label on a plain list item
+// is not reliably read out.
+//
 // `h.keyed('li')(key, attributes, children)` is the keyed form of `h.li`. A
 // key tells the runtime which DOM element belongs to which item of a list, so
 // that when the list changes it keeps, moves or replaces the right elements
@@ -1007,7 +1074,10 @@ const stringView = (
       // `aria-current="true"` marks the chip nearest to the note being
       // played. The lit colour says so to the eye. The attribute says so to
       // assistive technology, and gives the tests something to look for
-      // (`[aria-current="true"]`).
+      // (`[aria-current="true"]`). It is a state any element may carry: a
+      // screen reader says "current" when its user moves to the chip. A
+      // change of it is not read out, and need not be: the announcement
+      // above names the note with its octave.
       // Spreading an array that is either empty or holds one attribute is the
       // usual way to make an attribute conditional.
       ...(isNearest ? [h.AriaCurrent('true')] : []),
@@ -1023,12 +1093,20 @@ const stringView = (
           ),
         ],
         [
-          // The letter fades almost out while the tuner is not listening. The
-          // chip itself stays, so the row keeps its shape.
+          // The letter is dimmed while the tuner is not listening, and can
+          // still be read: which strings the chosen tuning has is worth
+          // knowing before switching on. `opacity-70` is the dimmest that
+          // keeps the letter at 3 to 1 against the chip (it measures 3.4).
+          // Until 0.8.0 it was at a tenth of its strength, as in the
+          // original tuner, which left the row looking empty.
           h.span(
-            [h.Class(isListening ? 'opacity-100' : 'opacity-10')],
+            [
+              h.AriaHidden(true),
+              h.Class(isListening ? 'opacity-100' : 'opacity-70'),
+            ],
             [noteName(midi)],
           ),
+          h.span([h.Class('sr-only')], [spokenNoteLabel(midi)]),
         ],
       ),
     ],
@@ -1107,7 +1185,7 @@ const controlsView = (
 // a click outside, moving focus into the list and back to the button, and the
 // ARIA wiring (`aria-haspopup="listbox"` and `aria-expanded` on the button,
 // `role="listbox"` on the panel, `role="option"` and `aria-selected` on each
-// item). It also renders the elements itself: a wrapper, the button, the
+// item). Each option is named by its content, the tuning's label. It also renders the elements itself: a wrapper, the button, the
 // panel, the items and a backdrop.
 // The app owns the selection and the looks. Which tuning is chosen lives in
 // `model.tuningId`, not in the Listbox. We pass it in as
@@ -1126,9 +1204,12 @@ const tuningPickerView = (
     model: model.tuningListbox,
     view: TuningListbox.view,
     viewInputs: {
-      // Sets `aria-label` on the button, which names the control for
-      // assistive technology. The tests find the picker by this name.
-      ariaLabel: 'Tuning',
+      // There is no `ariaLabel` here, on purpose. The Listbox would write
+      // it as an `aria-label` on the button, and an `aria-label` replaces
+      // the name the button's content gives: the control was called
+      // "Tuning" and nothing said which tuning. With no label attribute the
+      // name is the button's own text, and `buttonContent` below starts
+      // that text with the word, off screen.
       // Where the open list goes. The Listbox positions the panel against
       // the button with Floating UI. `placement` asks for it below the
       // button with the left edges in line, `gap` is the space between them
@@ -1149,6 +1230,8 @@ const tuningPickerView = (
       // The controls work only while the tuner is listening, as in the
       // original. A disabled Listbox marks its button `aria-disabled="true"`
       // and `data-disabled` and leaves the handlers off, so it cannot open.
+      // It can still take focus and be read, name and all: the native
+      // `disabled` attribute is not used.
       isDisabled: !display.isListening,
       // Called once for each option. The Listbox renders the option's element
       // (with its role, id, `aria-selected` and click handler). We return
@@ -1163,13 +1246,29 @@ const tuningPickerView = (
         className: `flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left hover:bg-blue-300/10 data-[active]:bg-blue-300/10 ${isSelected ? 'bg-white/10 font-semibold' : ''}`,
         content: h.span([h.Class('min-w-0 grow truncate')], [item.label]),
       }),
-      // What goes inside the button: the label of the chosen tuning, and a
-      // caret from icon.ts.
+      // What goes inside the button: the word "Tuning" and a colon, off
+      // screen, then the label of the chosen tuning, and a caret from
+      // icon.ts. A button's accessible name is its text, so a browser
+      // computes "Tuning: Guitar - Standard": what the control is, what is
+      // chosen, and the words a sighted person sees on it, whole and in
+      // order. That last part matters to someone who speaks to their
+      // computer: they say what they see. The word sits in a span of its
+      // own, with an id, so that the open list can be named by it alone
+      // (`itemsAttributes` below). `sr-only` takes the span out of the
+      // flex row, so the row is laid out as before.
       buttonContent: h.span(
         [h.Class('flex w-full items-center gap-2')],
         [
+          h.span(
+            [h.Class('sr-only')],
+            [h.span([h.Id(TUNING_NAME_ID)], [TUNING_NAME]), ': '],
+          ),
           h.span([h.Class('min-w-0 grow truncate')], [tuning.label]),
-          Icon.caretDown('h-3 w-3 shrink-0 opacity-70'),
+          // The caret is the sign that the button opens something, so it
+          // is the part that fades while the button cannot be opened.
+          Icon.caretDown(
+            `h-3 w-3 shrink-0 ${display.isListening ? 'opacity-70' : 'opacity-30'}`,
+          ),
         ],
       ),
       // Extra attributes for three of the elements the Listbox renders: the
@@ -1186,9 +1285,16 @@ const tuningPickerView = (
       // when a child hands handlers to its parent: see `settingsMenuView`.
       // These carry no handlers, so here it is only the wrapper the type
       // asks for. Foldkit's own Listbox demos pass classes the same way.
+      //
+      // The text is dimmer while the tuner is off, and can still be read.
+      // Which tuning is chosen is information, not decoration: it says
+      // what the tuner will listen for. `text-blue-100/55` measures 5.2 to
+      // 1 against the button, above the 4.5 that text needs, and the live
+      // state is 10.5. Until 0.8.0 the text was at 5%, as in the original
+      // tuner, which is invisible.
       buttonAttributes: childAttributes([
         h.Class(
-          `flex w-full items-center gap-2 rounded-md bg-oxford-dark px-4 py-2 text-left ${display.isListening ? 'cursor-pointer text-blue-100/80' : 'text-blue-100/5'}`,
+          `flex w-full items-center gap-2 rounded-md bg-oxford-dark px-4 py-2 text-left ${display.isListening ? 'cursor-pointer text-blue-100/80' : 'text-blue-100/55'}`,
         ),
       ]),
       // The panel's classes. Three of them need explaining.
@@ -1229,7 +1335,16 @@ const tuningPickerView = (
       // that too-short window it draws a soft dark edge at the top or the
       // bottom of the list while there are more tunings that way, which is
       // the only sign of it where the system hides scrollbars.
+      //
+      // `aria-labelledby` names the list. The Listbox already sets one,
+      // pointing at its button, which would call the list "Tuning: Guitar -
+      // Standard" and have a screen reader say the chosen tuning twice on
+      // opening: once in the list's name and once as the selected option.
+      // These attributes are applied after the Listbox's own, and a later
+      // attribute replaces an earlier one of the same name, so this points
+      // the list at the word alone. The list is called "Tuning".
       itemsAttributes: childAttributes([
+        h.AriaLabelledBy(TUNING_NAME_ID),
         h.Class(
           'scroll-cue z-20 w-(--button-width) rounded bg-oxford pt-1 pb-3 text-[15px] text-blue-100/90 shadow-lg shadow-oxford-950',
         ),
@@ -1259,7 +1374,8 @@ const tuningPickerView = (
 //              handlers are left off and the button gets
 //              `aria-disabled="true"` and `data-disabled`.
 //   panel      for the floating panel: its id, `tabindex="0"` so that it can
-//              take focus, a handler that closes on Escape, a handler that
+//              take focus, a handler that closes on Escape (wherever in the
+//              panel focus is, the A4 field included), a handler that
 //              closes when focus leaves the panel, and a Mount (below).
 //   backdrop   for an element behind the panel: a click handler that closes
 //              the menu, and a Mount.
@@ -1279,8 +1395,9 @@ const tuningPickerView = (
 // inserted, and its clean-up runs when the element is removed. The view stays
 // a pure description, and the Mount travels as an attribute (`h.OnMount`)
 // inside the bundle. The panel's Mount positions the panel against the button
-// with Floating UI, moves it into the portal root, and focuses it once it is
-// in place. The backdrop's Mount moves the backdrop into the portal root. Each
+// with Floating UI, moves it into the portal root, and once it is in place
+// focuses the A4 field (`focusSelector` below; the panel itself, if none
+// were given). The backdrop's Mount moves the backdrop into the portal root. Each
 // Mount reports back with a Message (`CompletedAnchorPopover`,
 // `CompletedPortalPopoverBackdrop`), which is why scene.test.ts has
 // `Mount.resolve(...)` steps for an open menu (FINDINGS.md, "Scene's
@@ -1307,7 +1424,17 @@ const settingsMenuView = (
     viewInputs: {
       // The button shows only an icon, so this is its whole accessible name.
       // The Popover puts it in the `button` bundle as an `aria-label`.
-      ariaLabel: 'Tuner settings',
+      // (The tuning picker has visible text and so takes no label: see
+      // `tuningPickerView`.)
+      ariaLabel: SETTINGS_NAME,
+      // Where focus goes when the menu opens: the A4 field, the one thing
+      // in it. Left out, the Popover focuses the panel itself, and the
+      // person has to press Tab once more to reach the field. The panel's
+      // Mount does the focusing, after it has put the panel in place: it
+      // looks this selector up in the document and focuses what it finds.
+      // Closing with Escape, with the button or by a click outside sends
+      // focus back to the button (the Popover's `FocusButton` Command).
+      focusSelector: `#${A4_INPUT_ID}`,
       // Below the button, with the right edges in line. The fields mean the
       // same as for the Listbox. Popover requires `anchor`.
       anchor: { placement: 'bottom-end', gap: 4, padding: 8 },
@@ -1340,9 +1467,22 @@ const settingsMenuView = (
             ...(isVisible
               ? [
                   h.div([...backdrop, h.Class('fixed inset-0 z-10')]),
+                  // The panel can take focus (the bundle gives it
+                  // `tabindex="0"`), so it is given a role and a name: a
+                  // screen reader that lands on it says "Tuner settings,
+                  // group" and not nothing.
+                  //
+                  // The key handler is for Shift+Tab while focus is on
+                  // the panel itself, which a click on its padding can
+                  // cause. See `leaveOnTab`.
                   h.div(
                     [
                       ...panel,
+                      h.Role('group'),
+                      h.AriaLabel(SETTINGS_NAME),
+                      h.OnKeyDownSelfPreventDefault((key, { shiftKey }) =>
+                        shiftKey ? leaveOnTab(key) : Option.none(),
+                      ),
                       h.Class(
                         'z-20 w-56 rounded-md bg-oxford px-4 pt-3 pb-4 text-blue-100/90 shadow-lg shadow-oxford-950',
                       ),
@@ -1358,6 +1498,40 @@ const settingsMenuView = (
     toParentMessage: message => Message.GotA4PopoverMessage({ message }),
   })
 
+// Tab in the settings menu: the one event handler this file writes by hand.
+//
+// The trouble it solves. The open panel is not in the document where it is
+// drawn. The Popover moves it to the start of <body> (the portal described
+// at `tuningPickerView`), and the Tab key follows the document. So Tab from
+// the A4 field went to the first link of the page, and Shift+Tab to the
+// last, with the menu closing behind. Someone using the keyboard was thrown
+// to the far end of the page for having set A4.
+//
+// What it does. `h.OnKeyDownPreventDefault(handler)` calls the handler with
+// the key's name on every key press. When the handler returns
+// `Option.some(message)`, Foldkit calls `preventDefault` on the event,
+// which stops the browser from moving focus, and dispatches the Message.
+// When it returns `Option.none()`, the key is the browser's as usual, so
+// digits and the arrow keys still work in the field. `update` answers the
+// Message by closing the menu, which sends focus back to the settings
+// button (`PressedTabInSettingsMenu` in src/main.ts). From there Tab and
+// Shift+Tab carry on through the page in the order it is drawn.
+//
+// It is attached in two places. On the A4 field, for Tab in either
+// direction: the field is the only stop in the menu, so both lead out of
+// it. And on the panel, for Shift+Tab only, and only when the panel itself
+// has focus (`h.OnKeyDownSelfPreventDefault` ignores keys that come up from
+// a child): Tab from the panel goes forward into the field, as it should.
+// A second control in the menu would need this rethought: Tab from the
+// field would then have somewhere to go.
+//
+// Escape is not handled here. The Popover's own handler on the panel sees
+// it, since a key press in the field travels up through the panel.
+const leaveOnTab = (key: string): Option.Option<Message> =>
+  key === 'Tab'
+    ? Option.some(Message.PressedTabInSettingsMenu())
+    : Option.none()
+
 // The A4 field inside the settings menu, built with `Input` from
 // `@foldkit/ui`: a stateless helper, used the same way as Meter.
 //
@@ -1369,8 +1543,8 @@ const settingsMenuView = (
 //   attributes.input  the id, the `type`, the `value`, the input handler, and,
 //                     when `isInvalid` is true, `aria-invalid="true"` and
 //                     `data-invalid`.
-// What the app provides: the elements, the classes, and the `min`, `max` and
-// `step` of a number field.
+// What the app provides: the elements, the classes, the `min`, `max` and
+// `step` of a number field, and a handler for the Tab key.
 //
 // This is a controlled input, and the place to see the whole loop in small:
 //
@@ -1392,7 +1566,7 @@ const a4FieldView = (model: Model, h: HtmlBuilder<Message>): Html =>
   Input.view(
     {
       // The id of the <input>, and what the label's `for` points at.
-      id: 'a4-input',
+      id: A4_INPUT_ID,
       type: 'number',
       value: model.a4Input,
       // `parseA4` returns an Option: Some(number) for a number from 400 to
@@ -1418,8 +1592,14 @@ const a4FieldView = (model: Model, h: HtmlBuilder<Message>): Html =>
             // which Input adds when `isInvalid` is true. A headless
             // component reports its state through attributes like this, and
             // the app decides what the state looks like.
+            // `leaveOnTab` takes the Tab key from the browser: see above.
+            // `h.OnMount` attaches a Mount of our own, which selects the
+            // field's text whenever the field takes focus, so that typing
+            // replaces the number (`AttachA4SelectOnFocus` in main.ts).
             h.input([
               ...attributes.input,
+              h.OnKeyDownPreventDefault(leaveOnTab),
+              h.OnMount(AttachA4SelectOnFocus()),
               h.Min(`${A4_MIN}`),
               h.Max(`${A4_MAX}`),
               h.Step('1'),
@@ -1645,8 +1825,12 @@ const startHintView = (display: Display, h: HtmlBuilder<Message>): Html =>
 // is only `polite`. It works because the element is absent (`h.empty`) until
 // there is a failure and is then inserted with its text. Its room is kept
 // by `messagesView`, like the waiting line's.
+//
+// `text-failure` is this project's own colour (src/styles.css): a red dark
+// enough to be read on the darkest part of the pedal, which Tailwind's
+// `red-950` was not.
 const failureView = (display: Display, h: HtmlBuilder<Message>): Html =>
   Option.match(display.maybeFailure, {
     onNone: () => h.empty,
-    onSome: reason => h.p([h.Role('alert'), h.Class('text-red-950')], [reason]),
+    onSome: reason => h.p([h.Role('alert'), h.Class('text-failure')], [reason]),
   })

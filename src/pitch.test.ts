@@ -26,6 +26,7 @@ import {
   noteFromFrequency,
   noteLabel,
   noteName,
+  spokenNoteLabel,
 } from './pitch'
 import { TUNINGS } from './tuning'
 
@@ -171,6 +172,21 @@ describe('noteName', () => {
   test('drops the octave', () => {
     expect(noteName(40)).toBe('E')
     expect(noteName(54)).toBe('F♯')
+  })
+})
+
+// The name a screen reader is given: the note with its octave, and a sharp
+// written as the word. The sign "♯" may be passed over in silence, and
+// "F3" for an F sharp would be the wrong note.
+describe('spokenNoteLabel', () => {
+  test('a natural note keeps its short form', () => {
+    expect(spokenNoteLabel(40)).toBe('E2')
+    expect(spokenNoteLabel(64)).toBe('E4')
+  })
+
+  test('a sharp is spelt out', () => {
+    expect(spokenNoteLabel(54)).toBe('F sharp 3')
+    expect(spokenNoteLabel(39)).toBe('D sharp 2')
   })
 })
 
