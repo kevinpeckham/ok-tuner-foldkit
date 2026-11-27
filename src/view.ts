@@ -40,7 +40,9 @@
 // position, the lit string and whether the A4 field is valid are all computed
 // here on every render (the DISPLAY section below). A stored copy could fall
 // out of step with the reading it came from. A derived value cannot. The
-// design says the same under "Model".
+// design says the same under "Model". One thing on the page is not derived:
+// the words a screen reader is told (`announcementView`), which depend on
+// the last few readings and so are kept in the Model by `update`.
 //
 // The pages. The app has three, and the `route` field of the Model says
 // which one is showing (src/route.ts). `view` draws what every page shares

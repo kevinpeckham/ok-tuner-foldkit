@@ -42,8 +42,21 @@ The app has routing: the routes are in `src/route.ts`, and the route is a field 
 
 ### The tuner's face
 
-- **One rule says "in tune", in one place.** The needle rounded to a whole cent, within `IN_TUNE_CENTS`: `toDisplay` in `src/view.ts` works it out, and the word, the needle's colour, the lit chip's colour and the green zone all come from there. Do not compare cents with `IN_TUNE_CENTS` anywhere else: the number and the word once disagreed because two places did.
+- **One rule says "in tune", in one place.** The needle rounded to a whole cent, within `IN_TUNE_CENTS`: `intonationOf` in `src/intonation.ts` works it out, for the view and for `update` alike. The word, the needle's colour, the lit chip's colour, the green zone and what a screen reader is told all come from there. Do not compare cents with `IN_TUNE_CENTS` anywhere else: the number and the word once disagreed because two places did.
 - **Words that come and go have their room kept.** The waiting line and the failure line are drawn inside `messagesView`, a block that is as tall without them as with them, so the page does not move. A new line of that kind goes in the same block. After changing it, or the sentences in `src/microphone.ts`, measure the pedal with no line, with the waiting line and with the longest sentence, at 1280 and 375 px (`FINDINGS.md`, "A line that comes and goes must have its room kept").
+
+### Screen readers and keyboard
+
+Built in 0.8.0 with no screen reader to hand. `FINDINGS.md`, "What is still unheard", lists what a person with one should check first. What is in place rests on these rules:
+
+- **A control is named by what is on it.** `aria-label` and `aria-labelledby` replace the name a control's content gives. So a control with visible text takes neither: words that have to be added go inside it, off screen (`sr-only`), and the name then contains the visible text, whole and in order. The tuning picker is the example ("Tuning: Guitar - Standard"). `aria-label` is for a control that shows no text at all, like the settings button.
+- **One live region speaks for the reading, and only `update` changes what it says.** It is `announcementView` in `src/view.ts`, off screen, drawn in every state and empty until there is something to say. Its words come from the `announcer` inside the `Listening` state, which `update` steps once a reading (`stepAnnouncer` in `src/intonation.ts`): a note and state are spoken once they have been shown for seven readings in a row. Never put `aria-live`, `role="status"` or `role="alert"` on anything that changes with the readings: the detail line changes twenty times a second.
+- **A live region is in the page before it has anything to say,** the prerendered file included. Only an `alert` may arrive with its text.
+- **Words for speech are spelt out.** A sharp is "F sharp 3", not "F♯3" (`spokenNoteLabel` in `src/pitch.ts`): a screen reader may pass over the sign in silence.
+- **A string chip shows a letter and is read with its octave.** The letter is hidden from assistive technology and the name is off-screen text inside the chip. The lit chip carries `aria-current="true"`.
+- **Tab in the settings menu is handled by the app** (`leaveOnTab` in `src/view.ts`), because an open Popover's panel sits at the start of the document and the browser's own Tab would go to the far end of the page. The A4 field is the menu's only stop. A second control in the menu means rethinking that handler.
+- **Contrast is measured, not judged.** Text on the pedal sits on a gradient, darkest at the foot, where black itself reaches only 5.1 to 1. After changing a colour on the pedal, or the pedal's ground, measure in headless Chrome against the darkest ground the text can sit on (`FINDINGS.md`, "How dark the failure line has to be"). The classes whose contrast was measured are pinned in `src/scene.test.ts`.
+- **After changing markup on the tuner's page,** read the names from Chrome's accessibility tree, walk the page with the keyboard and run axe-core on it, all in headless Chrome (`FINDINGS.md`, "What a screen reader is given is read from Chrome, and what it says is not"). No such check is in the suite yet.
 
 ### Tunings
 

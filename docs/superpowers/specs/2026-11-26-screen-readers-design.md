@@ -1,6 +1,6 @@
 # Screen readers and keyboard: design
 
-Asked for by Kevin on 2026-11-26, with the main decisions already made (marked "given" below). The six items of the backlog's "Screen readers and keyboard" section, a keyboard pass and an automated scan, in one pull request. Version 0.8.0.
+Asked for by Kevin, with the main decisions already made (marked "given" below), and built on 2026-11-27. The six items of the backlog's "Screen readers and keyboard" section, a keyboard pass and an automated scan, in one pull request. Version 0.8.0.
 
 Nobody could listen to this with a screen reader while it was built. Everything here is worked out from the ARIA and HTML specifications, from the accessibility tree that Chrome computes, and from how `@foldkit/ui` wires its own components. `FINDINGS.md` lists what a person with a real screen reader should check first.
 
@@ -72,7 +72,7 @@ The waiting line's `status` region and the failure line's `alert` are separate, 
 1. **`ariaLabelledBy` naming two elements** ("Tuning" and the value). Works, and replaces the name the content gives, which is the thing the house rule says to avoid.
 2. **No label attribute, and the word in the button's content, off screen (chosen).** The button's content becomes `<span class="sr-only">Tuning: </span>` followed by the visible label, so the name a browser computes is "Tuning: Guitar - Standard": what it is, what is chosen, and the visible text whole and in order.
 
-The open list would then be named after the button, value included ("Tuning: Guitar - Standard"). `itemsAttributes` are spread after the Listbox's own attributes, and a later attribute replaces an earlier one, so the list is given `aria-label="Tuning"`... which loses to `aria-labelledby`. So instead the off-screen word gets an id, and the list's `aria-labelledby` is pointed at it: the list is named "Tuning". If a later Foldkit stops letting the later attribute win, a Scene test fails.
+The open list would then be named after the button, value included ("Tuning: Guitar - Standard"), and a screen reader would say the chosen tuning twice on opening: in the list's name and as the selected option. An `aria-label` on the list would not help, because the Listbox's `aria-labelledby` wins over it. So the off-screen word gets an id, and the view hands the Listbox an `aria-labelledby` for the list that points at the word. `itemsAttributes` are spread after the Listbox's own attributes and a later attribute replaces an earlier one, so the list is named "Tuning". If a later Foldkit stops letting the later attribute win, a Scene test fails.
 
 The options are named by their content, the tuning's label.
 
@@ -105,4 +105,28 @@ The exact opacities and colours, from measurement. What the keyboard walk and th
 
 ## Changes during the build
 
-(Filled in as the work is done.)
+**A sharp is spoken as a word, and a chip's whole name is off screen.** The design had the octave alone added to each chip. A tuning a half step down shows D♯ G♯ C♯ F♯ A♯ D♯, and a screen reader may pass over the sign in silence, which would make the wrong note of it. So what is read is written out ("D sharp 2", `spokenNoteLabel` in `src/pitch.ts`), in the chips and in the announcement, and the chip's letter is hidden from assistive technology so the name is not said twice. If wrong: the words were not needed, and nothing is lost.
+
+**The numbers** (headless Chrome, computed colours composited in a canvas):
+
+| What                                  | Before                  | After                                   | Asked for |
+| ------------------------------------- | ----------------------- | --------------------------------------- | --------- |
+| Picker's text, tuner off              | 1.07 (`blue-100` at 5%) | 5.22 (55%)                              | 4.5       |
+| Chips' letters, tuner off             | 1.09 (opacity 10%)      | 3.44 (70%)                              | 3         |
+| Failure line, darkest ground under it | 3.91 (`red-950`)        | 4.79 (`failure`, `oklch(0.15 0.06 26)`) | 4.5       |
+
+The failure line was worse than the backlog's 4.1. Black itself reaches 5.08 at the foot of the pedal, so the new colour is a red that is nearly black. The caret fades to 30% while the picker cannot be opened, and the three dots are unchanged.
+
+**Tab in the settings menu.** The keyboard walk found that Tab from the A4 field closed the menu and put focus on the first link of the page, and Shift+Tab led to the last: an open Popover's panel sits at the start of the document. It was so before this work, and putting focus in the field made it the first thing a keyboard user would meet. Weighed: leaving it for the backlog; focusing the next control directly with `h.OnKeyDownFocus` (ties the view to the order of the page); and closing the menu the way Escape does (chosen). The view takes the Tab key in the field, `update` answers `PressedTabInSettingsMenu` with the Popover's own close, and focus lands on the settings button, one key press short of where Tab would ideally go. If wrong: a second control added to the menu cannot be tabbed to until the handler is rethought, which the comments and `AGENTS.md` say.
+
+**The field's text is selected on focus.** A field focused from code keeps its text unselected, so typing 442 gave "440442", where a field reached with Tab would have been replaced. A Mount on the field, `AttachA4SelectOnFocus`, selects the text on every focus, in the shape of `@foldkit/ui`'s own for its Combobox. If wrong: a click in the field selects the number where it used to place the caret.
+
+**The panel has a role and a name.** It can take focus, so it is `role="group"` named "Tuner settings".
+
+**The hold, measured.** Tones 5.5 cents sharp of A2, five seconds each. Steady: one announcement, or two when the reading drifted across the edge once. Wobbling across the edge 2.5 times a second: 24 or 25 changes of the word on the screen, one announcement. Wobbling 0.8 times a second: seven or eight announcements, 0.5 to 0.7 seconds apart. That last figure is the most the region is asked to say, and whether a screen reader keeps up with it is not known.
+
+**The scan.** axe-core 4.14 on twelve screens. One violation, on two of them: `region`, for the open list and the open menu, which `@foldkit/ui` places outside every landmark. Not fixed, in the backlog. What axe could not decide was text on a gradient, measured by hand: the waiting line 4.87, the failure line 4.79, the badge 3.40 and the scale's numbers while off 1.63 (both decoration, in the backlog).
+
+**The keyboard walk.** Every control is reached in the order it is drawn: the brand, the picker, the settings button, On / Off, the link under the tuner, the footer's links. Each shows a focus ring: the links their own white outline, the tuner's controls Chrome's two-tone ring, which is visible on the pedal and on the controls. The list opens with Enter, Space or the down arrow, moves with the arrows and End, chooses with Enter, and closes with Escape or Tab. Nothing traps focus.
+
+**A Scene finding.** A `Mount.expectEnded` step can be used in one scene only (`FINDINGS.md`).

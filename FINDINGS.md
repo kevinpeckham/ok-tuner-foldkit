@@ -8,6 +8,77 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 
 ## Why it is built this way
 
+### What is still unheard (2026-11-27, screen readers)
+
+Version 0.8.0 made the tuner usable without sight, and nobody listened to it: no screen reader was to hand. What was checked is what a screen reader is given (Chrome's accessibility tree, the ARIA and HTML specifications, how `@foldkit/ui` wires its components). What a screen reader says was inferred. A person with VoiceOver (macOS and iOS), NVDA (Windows) or TalkBack (Android) should check these first, in this order:
+
+1. **Is the reading spoken at all, and once?** Switch on, play one string and hold it. Expected: the note and its state once, about a third of a second after the note shows ("A2, in tune"), and nothing more while it rings. Not the note alone, not twice, not the cents.
+2. **Turning a peg.** Bring a flat string up to pitch. Expected: "flat" first, then "in tune" as it arrives, each once. Listen for announcements piling up behind the playing: a tone crossing the edge every 0.6 seconds produced seven or eight announcements in five seconds (`docs/backlog.md`).
+3. **Silence, then the same string again.** Expected: nothing said when the sound stops, and the same words again on the next pluck. This rests on a screen reader not reading out a region that has been emptied and reading it again when the same text returns, which the specification implies and which was not heard.
+4. **How a sharp note is said.** "F sharp 3, in tune" was written in words on purpose. Check that it does not come out as "F sharp three sharp" where the second word could be taken for part of the note, and how "E2" is said ("E two" is what is wanted).
+5. **The picker.** Expected on focus: "Tuning: Guitar - Standard", that it is a button that opens a list, and "dimmed" or "unavailable" while the tuner is off. On opening: "Tuning", list box, the chosen tuning, its place among eleven. Check that the chosen tuning is not said twice.
+6. **The settings menu.** Expected on opening: focus in the field, "A4 (Hz)", its value, and that it can be edited. Escape, Tab and Shift+Tab should each land on "Tuner settings", collapsed. On a phone there is no Tab key: check that swiping out of the menu leaves it in a sensible state.
+7. **The string chips.** Moving through them should read "E2", "A2" and so on, in a list called "Strings", with "current" on the lit one. `aria-current` is in the page on that chip, and Chrome's DevTools protocol does not list it among a node's properties, so that Chrome passes it on was not confirmed from this side.
+8. **The open list and menu in reading order.** They sit at the start of the document (`docs/backlog.md`). Check that reading on from the open list does not strand the user above the header.
+9. **Braille.** The same text goes to a braille display. "F sharp 3" will be long there.
+10. **Voice control.** Saying "click Guitar Standard", or "click Tuning", should reach the picker: its name contains the words on it.
+
+- **Where.** The backlog's "Screen readers and keyboard" section holds the known limits. The design is `docs/superpowers/specs/2026-11-26-screen-readers-design.md`.
+
+### The tuner says the note and which way it is off, a third of a second late (2026-11-27, screen readers)
+
+- **Symptom.** A screen reader's user heard the note's name and nothing about which way to turn the peg. Only the big note was a live region, because the line with "sharp" and "flat" in it changes twenty times a second.
+- **Fix.** One polite live region, off screen, says the note and one of three states: "E2, flat", "E2, in tune", "E2, sharp". Never the cents. Its text changes only when the note and state on the screen have been the same for seven readings in a row (Kevin's decisions: on a change of state, by the display's own rule for in tune, without chatter at the edge, one region, in the Model).
+- **Why it is in the Model.** "The same for seven readings" is memory, and a view has none. The `Listening` state holds an `announcer`: what is spoken, the candidate, and how many readings the candidate has held. `update` steps it once for each reading (`stepAnnouncer`). Time is counted in readings, so there is no timer and no clock, and a Story test plays any stretch of time by sending readings.
+- **Why seven.** A reading comes every 50 ms, so seven is 0.3 seconds from the first to the last and 0.35 from the last reading that showed something else. A string at the edge of in tune flips within a few readings. The first readings after a pluck are unsteady. And it is short enough to hear "in tune" while still near where the peg stopped. It also sets the most the region can say: one change every 0.35 seconds.
+- **What was measured,** in headless Chrome with tones 5.5 cents sharp of A2, the edge between "in tune" and "sharp", for five seconds each. Held steady: one announcement, or two when the reading drifted across the edge once. Wobbling across the edge 2.5 times a second: the word on the screen changed 24 or 25 times, the region once. Wobbling 0.8 times a second, so that each state lasts 0.6 seconds: seven or eight announcements, 0.5 to 0.7 seconds apart. The same over several runs.
+- **Silence.** The screen holds a note through 0.6 seconds of quiet and then clears. The announcer follows the screen: nothing changes while the note is held, and when the screen clears the region is emptied. Emptying is not read out (removed text is not among the changes a live region announces by default), and because the region is then empty, the next note is spoken even when it is the same note in the same state.
+- **Why not `role="status"`.** The waiting line already is the page's status region. `aria-live="polite"` with `aria-atomic="true"` is what the note had, and Chrome exposes both regions as polite and atomic.
+- **The note and the detail line are ordinary text now.** They can be moved to and read, cents included, and are never announced on their own.
+- **Not heard.** See "What is still unheard", above.
+- **Where.** `src/intonation.ts`; `shownAnnouncement`, `hearPitch` and `hearNothing` in `src/main.ts`; `announcementView` in `src/view.ts`; "what is spoken" in `src/story.test.ts`.
+
+### In tune is decided in a file of its own, for the view and for `update` (2026-11-27, tuner)
+
+- **What changed.** The rule of the entry below ("In tune is decided on the number as shown") was in `src/view.ts`. `update` now needs the same answer, for what a screen reader is told, and `src/main.ts` cannot import the view, which imports it. A second copy in `main.ts` is how the number and the word came apart before 0.7.2.
+- **Fix.** The rule moved to `src/intonation.ts`: `IN_TUNE_CENTS`, `wholeCents`, the green zone's edge, and `intonationOf`, which answers flat, in tune or sharp. The view's word, its two colours, and the announcement all come from that one function. `IN_TUNE_CENTS` is no longer exported from `main.ts`.
+- **The rule to keep** is the same: nothing else compares cents with `IN_TUNE_CENTS`.
+- **Where.** `src/intonation.ts` and its test; `toDisplay` in `src/view.ts`.
+
+### A control is named by its content, and the extra word goes off screen (2026-11-27, screen readers)
+
+- **Symptom.** The tuning picker was called "Tuning" and nothing said which tuning. It showed "Guitar - Standard".
+- **Cause.** The Listbox was given `ariaLabel: 'Tuning'`, which it writes as `aria-label` on its button. An `aria-label` replaces the name the button's content would give (and so does `aria-labelledby`).
+- **Fix.** No label attribute. The button's content starts with the word in a span that is off screen (`sr-only`), then the visible label, so the name Chrome computes is "Tuning: Guitar - Standard": what it is, what is chosen, and the visible words whole and in order, which is what someone using voice control says.
+- **The open list** is named by the Listbox after its button, which would say the chosen tuning twice on opening. The word has an id, and the view hands the Listbox an `aria-labelledby` for the list that points at it: the list is "Tuning". This relies on a later attribute replacing the Listbox's own (see "A later attribute replaces the one a component set", below).
+- **The settings button** keeps its `aria-label`: it shows only an icon, so there is no content to name it.
+- **Where.** `tuningPickerView` in `src/view.ts`; "what a screen reader is told" in `src/scene.test.ts`.
+
+### A string chip shows a letter and is read with its octave, and a sharp is a word (2026-11-27, screen readers)
+
+- **Symptom.** The two E strings of a guitar read the same, and the banjo's row read G D G B D.
+- **Fix.** A chip holds two spans: the letter, hidden from assistive technology, and the note with its octave, off screen. Chrome exposes "E2 A2 D3 G3 B3 E4". It is text inside the chip and not an `aria-label`, because a chip is a list item, not a control, and a label on a plain list item is not reliably read.
+- **Why the letter is hidden and the whole name repeated,** where the brief asked only for the octave to be added. A tuning a half step down is D♯ G♯ C♯ F♯ A♯ D♯. A screen reader may say the sign "♯", name it some other way, or pass over it in silence, and "D2" for a D sharp is the wrong note. So what is read is written in words, "D sharp 2" (`spokenNoteLabel` in `src/pitch.ts`), and the announcement uses the same. The cost: if every screen reader reads the sign well, the words were not needed.
+- **The lit chip** carries `aria-current="true"`, as before.
+- **Where.** `stringView` in `src/view.ts`; `spokenNoteLabel` in `src/pitch.ts`.
+
+### The chosen tuning can be read while the tuner is off (2026-11-27, look)
+
+- **Symptom.** While off, the picker's text was at 5% and the chips' letters at 10%, as in the original: 1.07 and 1.09 to 1. The tuner looked as if it had no tuning.
+- **Fix.** The picker's text is `text-blue-100/55`, 5.22 to 1 against the button (4.5 asked for; the live state is 10.5). The letters are at `opacity-70`, 3.44 to 1 against the chip (3 asked for; live is 6.1). The caret fades to 30% while the picker cannot be opened, and the three dots stay at 10%: the icons are what says "not now".
+- **How it was measured.** Computed colours composited in a canvas in the page, so alpha and opacity are counted, then the WCAG ratio.
+- **Not changed.** The picker and the menu are still disabled while off (a question for Kevin, in the backlog).
+- **Where.** `tuningPickerView` and `stringView` in `src/view.ts`; the classes are pinned in `src/scene.test.ts`.
+
+### How dark the failure line has to be (2026-11-27, look)
+
+- **Symptom.** The failure line was `text-red-950` on the pedal. The backlog said about 4.1 to 1. Measured: 3.91 against the darkest ground under it, 4.07 against the lightest.
+- **Cause.** The pedal is a gradient, darkest at the foot, where the line sits. There the ground is about rgb(108, 126, 152), and black itself only reaches 5.08 to 1. A colour that reads as red cannot reach 4.5.
+- **Fix.** A colour of the project's own, `failure` in `src/styles.css`: `oklch(0.15 0.06 26)`, a red that is nearly black. 4.79 to 1 at the darkest ground, at 1280, 375 and 320 px (two, three and four lines of text). For comparison, the waiting line's `slate-950` is 4.87.
+- **How it was measured.** The line's text is made transparent, a screenshot is taken, and the darkest pixel in the line's box is the ground. The text colour is opaque, so the ratio is exact.
+- **If the pedal changes,** measure again: there is under half a point of room.
+- **Where.** `failureView` in `src/view.ts`; `--color-failure` in `src/styles.css`.
+
 ### In tune is decided on the number as shown (2026-11-26, tuner)
 
 - **Symptom.** A needle at 5.4 cents read "+5 cents · sharp", and one at 5.0 read "+5 cents · in tune": the same number with two different words. A needle a hair flat read "-0 cents", and one a hair sharp "+0 cents". Read from the code first, then seen in headless Chrome with a tone 5.3 cents sharp and one 0.3 cents flat played as the microphone.
@@ -15,7 +86,7 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **Fix.** One rule (Kevin's decision): the needle rounded to a whole cent is in tune when it is within `IN_TUNE_CENTS`. `toDisplay` rounds once (`wholeCents`: a half goes away from zero on both sides, and nothing rounds to negative zero) and derives `isInTune` from the result. The detail line prints that number, takes sharp or flat from its sign, and adds a plus only above zero. The marker and the chip read the same `isInTune`.
 - **What it changes for a player.** In tune now reaches to just under 5.5 cents either side, where it stopped at 5.0. The green zone of the needle bar is drawn to match, 5.5 either side, from the same constant: at 5 a green needle would have sat outside it.
 - **The rule to keep.** Nothing else in the view compares cents with `IN_TUNE_CENTS`. A second comparison somewhere else is how the number and the word came apart.
-- **Where.** IN TUNE in `src/view.ts`; "the colours agree" in `src/scene.test.ts`, which checks the number, the word and both colours in one scene for each boundary.
+- **Where.** IN TUNE in `src/intonation.ts` since 0.8.0 (the entry above), before that in `src/view.ts`; "the colours agree" in `src/scene.test.ts`, which checks the number, the word and both colours in one scene for each boundary.
 
 ### A line that comes and goes must have its room kept (2026-11-26, look)
 
@@ -207,6 +278,29 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **Why.** The design said both "the note turns green in tune" and "colours match the original". In the live original the green class is overridden and never shows. Kevin looked at the result and kept it as it is.
 
 ## Foldkit and Effect
+
+### Tab in the settings menu went to the far end of the page (2026-11-27, Foldkit)
+
+- **Symptom.** With the settings menu open and focus in the A4 field, Tab closed the menu and put focus on the first link of the page, "OK Tuner". Shift+Tab went to the panel, and once more to the last link of the footer. Seen in headless Chrome during a keyboard walk. It was there before 0.8.0, one Tab press further in.
+- **Cause.** An open Popover moves its panel to `#foldkit-portal-root`, the first child of `<body>`, so that nothing clips it. Tab follows the document, not the picture. The Listbox meets the same thing and sends Tab back through its button (`interceptTab` in `anchorSetup`); the Popover passes `interceptTab: false`, because a panel may hold several controls to tab between.
+- **Fix.** The view takes the key: `h.OnKeyDownPreventDefault` on the A4 field returns a Message for Tab, which makes Foldkit call `preventDefault`, and nothing for any other key. `update` answers `PressedTabInSettingsMenu` with the Popover's own `close` (`foldA4PopoverClose`), whose `FocusButton` Command puts focus on the settings button. From there Tab and Shift+Tab carry on in the order the page is drawn. Shift+Tab on the panel itself is taken the same way (`h.OnKeyDownSelfPreventDefault`, which ignores keys coming up from a child).
+- **The cost.** One more key press than the ideal, which would be Tab straight to the On / Off button. And the handler assumes the field is the menu's only stop.
+- **Where.** `leaveOnTab` in `src/view.ts`; `PressedTabInSettingsMenu` in `src/main.ts`; "Tab in the settings menu" in `src/story.test.ts`.
+
+### The Popover's `focusSelector`, and a field focused from code (2026-11-27, Foldkit)
+
+- **What `focusSelector` is.** A view input of `Popover.view`. The panel's Mount (`AnchorPopover`) positions the panel, makes it visible, and on the next animation frame focuses `document.querySelector(focusSelector)` where it would have focused the panel. `Dom.focus` in a Command could not do it: the panel is still hidden when a Command runs.
+- **Where focus goes on closing.** Escape, the button and a click outside all end in `RequestedClose`, which returns `FocusButton`: focus on the settings button. Focus leaving the panel closes the menu with no focus Command.
+- **Symptom of the first try.** With focus put in the field from code, typing 442 gave "440442". A field reached with Tab has its text selected by the browser. A field focused from code does not.
+- **Fix.** A Mount of the app's own on the field, `AttachA4SelectOnFocus`, adds a `focus` listener that selects the text and removes it when the field leaves the page. It is the shape of `@foldkit/ui`'s `AttachComboboxSelectOnFocus`. A Mount is handed the element, so nothing looks it up.
+- **The panel has a role and a name.** The bundle gives it `tabindex="0"`. It is now `role="group"` named "Tuner settings".
+- **Where.** `settingsMenuView` and `a4FieldView` in `src/view.ts`; MOUNT in `src/main.ts`.
+
+### A later attribute replaces the one a component set (2026-11-27, Foldkit)
+
+- **What happens.** The Listbox spreads `itemsAttributes` after its own attributes on the list, and an attribute given twice keeps the later value. So `h.AriaLabelledBy(...)` in `itemsAttributes` replaces the `aria-labelledby` the Listbox wrote. Event handlers are the exception: all of them run (`updateDataOn` in `repos/foldkit/packages/foldkit/src/html/index.ts`), which is how the settings panel has the Popover's key handler and ours.
+- **It is not a documented promise.** A Scene test names the list by role and name, and fails if an upgrade changes the order.
+- **Where.** `itemsAttributes` in `tuningPickerView`, `src/view.ts`.
 
 ### A crash releases nothing, so the app closes the microphone itself (2026-11-26, Foldkit)
 
@@ -405,6 +499,29 @@ Sections: [Why it is built this way](#why-it-is-built-this-way) · [Foldkit and 
 - **How it was checked.** The comments were added without touching code: each file, with comments stripped, was compared before and after.
 
 ## Testing
+
+### What a screen reader is given is read from Chrome, and what it says is not (2026-11-27, screen readers)
+
+- **Names and states.** Chrome's own accessibility tree comes over the DevTools protocol: `Accessibility.getFullAXTree` on a CDP session gives each node's role, computed name and properties (`disabled`, `expanded`, `selected`, `focused`, `live`, `atomic`). That is where "Tuning: Guitar - Standard" and "A2, in tune" were confirmed. Playwright's `ariaSnapshot()` and `getByRole(..., { name })` agree, and compute names with Playwright's own code, not Chrome's.
+- **What the tree does not show.** `aria-current` is not among the properties the protocol lists, so the lit chip was checked as an attribute in the page.
+- **How often the region speaks.** A `MutationObserver` in the page records every change of the region's text and of the word on the screen, with times. Sampling from outside would miss changes.
+- **A tone at the edge.** A steady tone at the edge of in tune settles on one side. To make the edge flutter, the tone's pitch is swung a cent and a half either side of it, with the phase carried from sample to sample so there is no click.
+- **The keyboard.** Tab, Shift+Tab, Enter, Space, the arrows and Escape through the page, printing `document.activeElement` and its computed outline after each, with a screenshot of each focused control.
+- **axe-core.** Installed in the scratch folder, not the project. Its source is read from `node_modules` and run with `page.evaluate`, which goes through the DevTools protocol and is not stopped by the site's Content Security Policy. Screens scanned: the tuner off, listening, with the list open, with the menu open, with the waiting line and with the failure line at 375 px, the three other pages, the 404 and the crash screen. One violation, on two screens: `region`, for the open list and the open menu (`docs/backlog.md`). What axe could not decide was text on a gradient, which was measured by hand.
+- **Where.** The scripts were session scratch (`screen-readers.ts`, `axe.ts` and `make-wobble-wav.ts` in the smoke folder), like the others ("Checking the real page in headless Chrome, with and without a microphone", below).
+
+### A `Mount.expectEnded` step works once (2026-11-27, tests)
+
+- **Symptom.** A Scene step made once, `const gone = Mount.expectEnded(A, B, C)`, and used in several scenes passed in the first and failed in the rest, at the end of the scene: "I found Mounts that ended without being acknowledged", naming all three.
+- **Cause.** The step copies its list of Mounts with Effect's `Array.fromIterable`, which returns an array as it is, and then removes each Mount it finds from that list. The list is the step's own, so after one use it is empty, and the next scene's step acknowledges nothing. Read in `expectEndedMountsStep` in `repos/foldkit/packages/foldkit/src/test/scene.ts`.
+- **Fix.** Make the step afresh for each scene: `const gone = () => Mount.expectEnded(A, B, C)`. An array of `Mount.resolve` steps can be shared, and is.
+- **Where.** `settingsMenuGone` in `src/scene.test.ts`.
+
+### A Scene's `keydown` calls the handlers of one element (2026-11-27, tests)
+
+- **What happens.** In a browser an Escape pressed in the A4 field travels up to the panel, where the Popover's handler closes the menu. In a Scene, `keydown(field, 'Escape')` reaches only the field's own handler and is ignored. Send the key to the element that holds the handler.
+- **Useful with it.** `expectHandled()` passes when the last interaction's handler produced a Message, which is what makes `h.OnKeyDownPreventDefault` call `preventDefault`, and `expectIgnored()` when it produced none. That is how the scenes show that Tab is taken from the browser and a digit is not.
+- **Where.** "Tab in the A4 field" and "other keys in the A4 field" in `src/scene.test.ts`.
 
 ### A boundary is checked in a real browser with a tone a few cents off (2026-11-26, tuner)
 

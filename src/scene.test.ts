@@ -1081,8 +1081,9 @@ describe('what a screen reader is told', () => {
   // reads out. It is off screen and has no role, so the view marks it with
   // a `data-tuner-announcement` attribute for this to find.
   const announcement = selector('[data-tuner-announcement]')
-  // Every live region on the page, of any kind: an element with
-  // `aria-live`, or with a role that makes it one.
+  // Every element on the page that is made a live region by an
+  // `aria-live` attribute. The two made so by a role, `status` and
+  // `alert`, are counted by role in the scene that uses this.
   const liveByAttribute = all.selector('[aria-live]')
 
   // A Model that is listening, with the announcer saying something. The
@@ -1417,9 +1418,10 @@ describe('what a screen reader is told', () => {
   //
   // `keydown(locator, key, modifiers)` calls the element's keydown
   // handlers the way `click` calls its click handlers. `expectHandled`
-  // passes when the last interaction called `preventDefault`, which is
-  // what stops the browser from moving focus by itself, and
-  // `expectIgnored` when it did not.
+  // passes when the handler produced a Message. For a handler attached
+  // with `h.OnKeyDownPreventDefault`, producing a Message is what makes
+  // Foldkit call `preventDefault`, which stops the browser from moving
+  // focus by itself. `expectIgnored` passes when it produced none.
   test.each([
     ['Tab', {}],
     ['Shift+Tab', { shiftKey: true }],

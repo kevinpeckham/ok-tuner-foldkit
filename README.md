@@ -1,6 +1,6 @@
 # OK Tuner
 
-A chromatic instrument tuner that runs in the browser, built with [Foldkit](https://foldkit.dev). It listens to the microphone, shows the nearest note and how many cents sharp or flat it is, and lights the nearest string of the chosen tuning. Nothing is recorded.
+A chromatic instrument tuner that runs in the browser, built with [Foldkit](https://foldkit.dev). It listens to the microphone, shows the nearest note and how many cents sharp or flat it is, and lights the nearest string of the chosen tuning. To a screen reader it says the note and whether it is flat, in tune or sharp. Nothing is recorded.
 
 It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <https://www.oktuner.com/>.
 
@@ -8,8 +8,9 @@ It is a port of the tuner in Stem Shovel, written to learn Foldkit. Live at <htt
 
 - `src/pitch.ts`: pitch detection (McLeod's method) and note naming. Pure.
 - `src/tuning.ts`, `src/preferences.ts`: the tunings (guitar, bass, ukulele, mandolin and banjo, and Chromatic for anything else), and the tuning and A4 saved in `localStorage`.
+- `src/intonation.ts`: the one rule for flat, in tune and sharp, and what the tuner says aloud to a screen reader: the note and its state, once they have held steady for a third of a second.
 - `src/microphone.ts`: opening and closing the microphone, reading one measurement, and closing whatever is still open when the app crashes.
-- `src/main.ts`: the Model, Messages, `update`, the microphone as a managed resource, and the 50 ms readings as a subscription.
+- `src/main.ts`: the Model, Messages, `update`, the microphone as a managed resource, the 50 ms readings as a subscription, and one Mount, on the A4 field.
 - `src/entry.server.ts`: how the build writes each page as an HTML file. `src/entry.ts` is the browser's half, which takes that HTML over.
 - `src/route.ts`: the pages as routes: the tuner at `/`, "How to use the tuner" at `/how-to`, "Built with" at `/built-with`, "Privacy" at `/privacy`, and a not-found page.
 - `src/sentry.ts`: everything that touches the Sentry SDK. `src/instrument.ts` starts it before the rest of the app loads.
@@ -25,11 +26,11 @@ The design and the implementation plan are in `docs/superpowers/`. Gotchas, and 
 The source is commented for someone learning Foldkit: each file opens with what it is and where it sits, and each declaration says what it does. A good order:
 
 1. `src/entry.ts`: how the app is handed to the Foldkit runtime in the browser. Then `src/entry.server.ts`: how the same app is drawn into HTML files by the build.
-2. `src/main.ts`: the Model, the Messages, `update`, Commands, the managed resource and the subscription. Most of Foldkit is here.
+2. `src/main.ts`: the Model, the Messages, `update`, Commands, a Mount, the managed resource and the subscription. Most of Foldkit is here.
 3. `src/route.ts`: routing, in one short file. Read it with the ROUTING part of the header of `main.ts`.
 4. `src/view.ts`, then `src/page/`: how the Model becomes the page, and how the page sends Messages.
 5. `src/story.test.ts` and `src/scene.test.ts`: how `update` and the view are tested. Then `src/app.runtime.test.ts`: the whole app started in a test, for what only a running runtime does (a link followed, the microphone opened and read).
-6. `src/microphone.ts`, `src/pitch.ts`, `src/tuning.ts`, `src/preferences.ts`, `src/sentry.ts`: the parts Foldkit calls into.
+6. `src/microphone.ts`, `src/pitch.ts`, `src/intonation.ts`, `src/tuning.ts`, `src/preferences.ts`, `src/sentry.ts`: the parts Foldkit calls into. `src/intonation.ts` is short, and shows a piece of state that had to go in the Model: what a screen reader was last told.
 7. `src/crash.ts`: what Foldkit does when the app crashes, and what still works on a page whose runtime has stopped. `src/crash.runtime.test.ts` shows it with a runtime that really crashes.
 8. `vite.config.ts`, `.env.schema`: the build.
 
